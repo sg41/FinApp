@@ -91,6 +91,24 @@ async def check_connection_exists(bank_name: str, client_suffix: int, db: Sessio
             detail="Connection not found for the specified bank and client."
         )
 
+@app.get("/connections", summary="Получить список всех подключений пользователя")
+async def list_connections(db: Session = Depends(get_db)):
+    """
+    Возвращает список всех записей о подключениях для текущего пользователя.
+    """
+    user_id = 1 # Наш тестовый пользователь
+
+    logger.info(f"Запрос на получение списка всех подключений для пользователя ID: {user_id}")
+
+    connections = db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == user_id).all()
+
+    if not connections:
+        logger.info("Для данного пользователя подключения не найдены.")
+        return [] # Возвращаем пустой список, а не ошибку
+
+    logger.info(f"Найдено {len(connections)} подключений.")
+    return connections
+
 @app.post("/connect/{bank_name}/{client_suffix}", summary="Шаг 1: Инициировать подключение")
 async def initiate_connection(bank_name: str, client_suffix: int, db: Session = Depends(get_db)):
     config = BANK_CONFIGS[bank_name]
