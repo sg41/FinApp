@@ -202,3 +202,57 @@ async def check_consent_status(connection_id: int, db: Session = Depends(get_db)
             connection.status = api_status
             db.commit()
         return {"status": api_status, "message": f"Consent status is '{api_status}'. Please try again later."}
+
+@app.delete("/connection/{connection_id}", summary="Шаг 3: Отозвать согласие и удалить подключение")
+async def delete_connection(connection_id: int, db: Session = Depends(get_db)):
+    """
+    Удаляет подключение. Если имеется идентификатор (consent_id или request_id),
+    сначала отзывает его в банке, а затем удаляет запись из локальной базы данных.
+    """
+    logger.info(f"Запрос на удаление подключения с ID: {connection_id}")
+    
+    connection = db.query(models.ConnectedBank).filter(models.ConnectedBank.id == connection_id).first()
+    if not connection:
+        logger.warning(f"Подключение с ID {connection_id} не найдено в базе данных.")
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    # --- ИЗМЕНЕНИЕ: Определяем, какой ID использовать для отзыва ---
+    id_to_revoke = None
+    if connection.consent_id:
+        id_to_revoke = connection.consent_id
+    elif connection.request_id:
+        id_to_revoke = connection.request_id
+
+    # Если есть что отзывать (любой из ID), отправляем запрос в банк
+    if id_to_revoke:
+        logger.info(f"Найден ID для отзыва: {id_to_revoke}. Попытка отзыва в банке {connection.bank_name}.")
+        config = BANK_CONFIGS[connection.bank_name]
+        
+        # Используем универсальный ID в URL
+        revoke_url = f"{config['base_url']}/account-consents/{id_to_revoke}"
+        headers = {
+            "x-fapi-interaction-id": config['client_id']
+        }
+
+        async with httpx.AsyncClient() as client:
+            request = client.build_request("DELETE", revoke_url, headers=headers)
+            log_request(request)
+            response = await client.delete(revoke_url, headers=headers)
+            log_response(response)
+        
+        # Успешный отзыв - 204 No Content.
+        # Ошибка 404 (Not Found) также приемлема - значит, ресурс уже недействителен.
+        if response.status_code not in [204, 404]:
+            logger.error(f"Банк вернул непредвиденную ошибку при отзыве ресурса {id_to_revoke}: {response.text}")
+            # Несмотря на ошибку, мы все равно удалим запись локально
+    
+    else:
+        # Если нет ни consent_id, ни request_id (теоретически невозможно, но для надежности)
+        logger.info(f"В записи отсутствует идентификатор для отзыва. Пропускаем шаг отзыва в банке.")
+
+    # Вне зависимости от исхода отзыва, удаляем запись из нашей локальной базы данных.
+    logger.info(f"Удаление записи о подключении ID {connection_id} из локальной базы данных.")
+    db.delete(connection)
+    db.commit()
+
+    return {"status": "deleted", "message": "Connection record successfully deleted from the database."}
