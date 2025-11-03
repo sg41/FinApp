@@ -133,42 +133,48 @@ async def initiate_connection(bank_name: str, client_suffix: int, db: Session = 
         return {"status": "success_auto_approved", "message": "Connection created and auto-approved.", "connection_id": connection.id}
     else:
         request_id = consent_data['request_id']
-        connection = models.ConnectedBank(user_id=user_id, bank_name=bank_name, bank_client_id=full_bank_client_id, request_id=request_id, status="pending")
+        # ИЗМЕНЕНИЕ: Устанавливаем новый статус при создании
+        connection = models.ConnectedBank(user_id=user_id, bank_name=bank_name, bank_client_id=full_bank_client_id, request_id=request_id, status="awaitingauthorization")
         db.add(connection)
         db.commit()
-        return {"status": "pending_manual_approval", "message": "Connection initiated. Please approve and check status.", "connection_id": connection.id}
+        # ИЗМЕНЕНИЕ: Возвращаем новый статус
+        return {"status": "awaiting_authorization", "message": "Connection initiated. Please approve and check status.", "connection_id": connection.id}
+
 
 @app.post("/check_consent/{connection_id}", summary="Шаг 2: Проверить статус или обновить данные")
 async def check_consent_status(connection_id: int, db: Session = Depends(get_db)):
     connection = db.query(models.ConnectedBank).filter(models.ConnectedBank.id == connection_id).first()
     if not connection: raise HTTPException(status_code=404, detail="Connection not found")
     
+    # ИЗМЕНЕНИЕ: Проверяем, что статус не является финальным (например, 'active' или 'rejected')
+    if connection.status not in ["awaitingauthorization", "active"]:
+         return {"status": connection.status, "message": f"Consent is in a final state: {connection.status}"}
+
     config = BANK_CONFIGS[connection.bank_name]
     bank_access_token = await get_bank_token(connection.bank_name)
     
-    # --- ИЗМЕНЕНИЕ: Разная логика для 'pending' и 'active' ---
-    if connection.status == "pending":
-        # Проверяем ожидающее согласие по request_id
+    # Логика выбора URL для проверки остается той же
+    if connection.status == "awaitingauthorization":
         check_url = f"{config['base_url']}/account-consents/{connection.request_id}"
         headers = {"Authorization": f"Bearer {bank_access_token}", "X-Requesting-Bank": config['client_id']}
-    elif connection.status == "active":
-        # Проверяем активное согласие по consent_id
+    else: # status == "active"
         check_url = f"{config['base_url']}/account-consents/{connection.consent_id}"
-        # Используем другой заголовок, как в документации
         headers = {"Authorization": f"Bearer {bank_access_token}", "x-fapi-interaction-id": config['client_id']}
-    else:
-        return {"status": connection.status, "message": "Consent is in a final, non-checkable state."}
 
     async with httpx.AsyncClient() as client:
         response = await client.get(check_url, headers=headers)
     log_response(response)
 
     if response.status_code != 200: raise HTTPException(status_code=500, detail=f"Failed to check consent status: {response.text}")
+    
     consent_data = response.json().get("data", {})
     
-    if consent_data.get("status", "").lower() == "authorized":
-        # Если статус "authorized", обновляем нашу запись и получаем данные
-        if connection.status == "pending":
+    # ИЗМЕНЕНИЕ: Новая, более надежная логика обработки статусов
+    api_status = consent_data.get("status", "unknown").lower()
+
+    if api_status == "authorized":
+        # Сценарий "Успех"
+        if connection.status == "awaitingauthorization":
             connection.consent_id = consent_data['consentId']
         connection.status = "active"
         db.commit()
@@ -180,10 +186,19 @@ async def check_consent_status(connection_id: int, db: Session = Depends(get_db)
         except Exception: pass
         
         return {"status": "success_approved", "message": "Consent is active and data fetched!", "accounts_data": accounts_data}
+    
+    elif api_status == "rejected":
+        # Сценарий "Отказ"
+        logger.info(f"Согласие для connection_id {connection_id} было отклонено пользователем.")
+        connection.status = "rejected"
+        db.commit()
+        return {"status": "rejected", "message": "User has rejected the consent request."}
+        
     else:
-        # Если статус другой (например, "pending" или "revoked")
-        new_status = consent_data.get("status", "unknown").lower()
-        if connection.status != new_status:
-            connection.status = new_status
+        # Сценарий "Все остальное" (включая "awaitingauthorization", "expired" и т.д.)
+        logger.info(f"Состояние согласия для connection_id {connection_id}: '{api_status}'")
+        # Обновляем статус в нашей БД, если он изменился
+        if connection.status != api_status:
+            connection.status = api_status
             db.commit()
-        return {"status": new_status, "message": "Consent is not authorized yet or has been revoked."}
+        return {"status": api_status, "message": f"Consent status is '{api_status}'. Please try again later."}
