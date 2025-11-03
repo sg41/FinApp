@@ -29,9 +29,23 @@ BANK_TOKEN_CACHE: Dict[str, Dict] = {}
 
 BANK_CONFIGS = {
     "vbank": {
-        "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET,
-        "base_url": "https://vbank.open.bankingapi.ru", "auto_approve": True
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "base_url": "https://vbank.open.bankingapi.ru",
+        "auto_approve": True
     },
+    "abank": {
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "base_url": "https://abank.open.bankingapi.ru",
+        "auto_approve": True  # ABank также авто-одобряемый
+    },
+    "sbank": {
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "base_url": "https://sbank.open.bankingapi.ru",
+        "auto_approve": False # SBank требует ручного подтверждения
+    }
 }
 
 # ... (функции log_request, log_response, get_bank_token, fetch_accounts остаются без изменений) ...
@@ -109,7 +123,7 @@ async def connect_bank_and_fetch_data(bank_name: str, client_suffix: int, db: Se
     user_id = 1
     full_bank_client_id = f"{config['client_id']}-{client_suffix}"
 
-    # Шаг 1: Получаем токен и создаем согласие
+    # Шаг 1: Получаем токен и создаем "запрос на согласие"
     bank_access_token = await get_bank_token(bank_name)
     consent_url = f"{config['base_url']}/account-consents/request"
     headers = {"Authorization": f"Bearer {bank_access_token}", "Content-Type": "application/json", "X-Requesting-Bank": config['client_id']}
@@ -117,54 +131,63 @@ async def connect_bank_and_fetch_data(bank_name: str, client_suffix: int, db: Se
     
     async with httpx.AsyncClient() as client:
         response = await client.post(consent_url, headers=headers, json=consent_body)
-
+    
+    # ВАЖНО: Мы еще не знаем, успешный ли это ответ, просто логируем его
+    log_response(response)
+        
     if response.status_code != 200:
         raise HTTPException(status_code=500, detail=f"Failed to create consent: {response.text}")
+
     consent_data = response.json()
-    consent_id = consent_data['consent_id']
-    if not consent_data.get("auto_approved"):
-        raise HTTPException(status_code=501, detail="Manual approval flow is not implemented yet.")
 
-    # --- ИЗМЕНЕНИЕ: Логика "Найти или Создать" ---
-    
-    # Шаг 2: Ищем подключение по УНИКАЛЬНОМУ consent_id
-    connection = db.query(models.ConnectedBank).filter(
-        models.ConnectedBank.consent_id == consent_id
-    ).first()
+    # --- ИЗМЕНЕНИЕ: ГЛАВНАЯ ПРОВЕРКА ---
+    # Проверяем, было ли согласие одобрено автоматически
+    if consent_data.get("auto_approved"):
+        # --- Сценарий для VBank и ABank (авто-одобрение) ---
+        logger.info("Согласие одобрено автоматически. Продолжаем получение данных.")
+        consent_id = consent_data['consent_id'] # Теперь это безопасно
 
-    if connection:
-        logger.info(f"Найдено существующее подключение с consent_id: {consent_id}. Будет обновлено.")
-        status_message = "already_exists_updated"
+        connection = db.query(models.ConnectedBank).filter(models.ConnectedBank.consent_id == consent_id).first()
+        if not connection:
+            connection = models.ConnectedBank(
+                user_id=user_id, bank_name=bank_name, bank_client_id=full_bank_client_id,
+                consent_id=consent_id, status="active"
+            )
+            db.add(connection)
+            db.commit()
+            db.refresh(connection)
+        
+        accounts_data = await fetch_accounts(bank_access_token, consent_id, full_bank_client_id, bank_name)
+        
+        try:
+            account_holder_name = accounts_data.get("data", {}).get("account", [{}])[0].get("account", [{}])[0].get("name")
+            if account_holder_name and connection.full_name != account_holder_name:
+                connection.full_name = account_holder_name
+                db.commit()
+        except (IndexError, KeyError, AttributeError) as e:
+            logger.warning(f"Не удалось извлечь имя пользователя из данных по счетам: {e}")
+
+        return {
+            "status": "success_auto_approved",
+            "message": f"Bank client {full_bank_client_id} processed successfully!",
+            "accounts_data": accounts_data
+        }
     else:
-        logger.info(f"Создается новое подключение с consent_id: {consent_id}.")
-        # Если не найдено, создаем новый объект БЕЗ имени
-        connection = models.ConnectedBank(
-            user_id=user_id,
-            bank_name=bank_name,
-            bank_client_id=full_bank_client_id,
-            consent_id=consent_id,
-            status="active",
-        )
-        db.add(connection)
-        db.commit() # Сохраняем "пустую" запись, чтобы она появилась в БД
-        db.refresh(connection) # Обновляем объект, чтобы получить его ID из БД
-        status_message = "success_created"
-
-    # Шаг 3: Запрашиваем данные по счетам
-    accounts_data = await fetch_accounts(bank_access_token, consent_id, full_bank_client_id, bank_name)
-
-    # Шаг 4: Извлекаем имя и ОБНОВЛЯЕМ запись
-    try:
-        account_holder_name = accounts_data.get("data", {}).get("account", [{}])[0].get("account", [{}])[0].get("name")
-        if account_holder_name and connection.full_name != account_holder_name:
-            logger.info(f"Обновляем имя для consent_id {consent_id} на '{account_holder_name}'")
-            connection.full_name = account_holder_name
-            db.commit() # Сохраняем только изменение имени
-    except (IndexError, KeyError, AttributeError) as e:
-        logger.warning(f"Не удалось извлечь имя пользователя из данных по счетам: {e}")
-
-    return {
-        "status": status_message,
-        "message": f"Bank client {full_bank_client_id} processed successfully!",
-        "accounts_data": accounts_data
-    }
+        # --- Сценарий для SBank (ручное одобрение) ---
+        logger.info("Согласие требует ручного подтверждения. Возвращаем URL для редиректа.")
+        
+        # API для ручного подтверждения обычно возвращает ссылку для редиректа.
+        # Ищем ее в ответе. Название ключа может отличаться, но `redirect_url` - частый вариант.
+        redirect_url = consent_data.get("redirect_url")
+        
+        if not redirect_url:
+            logger.error(f"Не удалось найти 'redirect_url' в ответе от банка: {consent_data}")
+            raise HTTPException(status_code=500, detail="Bank response for manual approval is in an unexpected format.")
+            
+        # На этом этапе мы должны были бы сохранить временный статус в БД,
+        # но для хакатона достаточно просто вернуть ссылку.
+        return {
+            "status": "pending_manual_approval",
+            "message": "Please redirect the user to the provided URL for manual approval.",
+            "authorization_url": redirect_url
+        }
