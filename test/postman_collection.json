@@ -6,28 +6,16 @@
     },
     "item": [
         {
-            "name": "1. Connections Lifecycle",
+            "name": "VBank Lifecycle (Auto-Approve)",
             "item": [
                 {
-                    "name": "Инициировать подключение (VBank - Auto-approve)",
+                    "name": "Create VBank Connection",
                     "event": [
                         {
                             "listen": "test",
                             "script": {
                                 "exec": [
-                                    "pm.test(\"Status code is 200\", function () {",
-                                    "    pm.response.to.have.status(200);",
-                                    "});",
-                                    "",
-                                    "pm.test(\"Response contains connection_id and status is correct\", function () {",
-                                    "    const jsonData = pm.response.json();",
-                                    "    pm.expect(jsonData.status).to.be.oneOf([\"success_auto_approved\", \"already_initiated\"]);",
-                                    "    pm.expect(jsonData).to.have.property(\"connection_id\");",
-                                    "    ",
-                                    "    if (jsonData.connection_id) {",
-                                    "        pm.environment.set(\"connection_id_vbank\", jsonData.connection_id);",
-                                    "    }",
-                                    "});"
+                                    "pm.test(\"Status code is 200\",function(){pm.response.to.have.status(200);});pm.test(\"Response is valid for create\",function(){const d=pm.response.json();pm.expect(d.status).to.be.oneOf([\"success_auto_approved\",\"already_initiated\"]);pm.expect(d).to.have.property(\"connection_id\");if(d.connection_id)pm.environment.set(\"connection_id_vbank\",d.connection_id);});"
                                 ],
                                 "type": "text/javascript"
                             }
@@ -35,7 +23,6 @@
                     ],
                     "request": {
                         "method": "POST",
-                        "header": [],
                         "body": {
                             "mode": "raw",
                             "raw": "{\n  \"bank_name\": \"vbank\",\n  \"bank_client_id\": \"{{team_id}}-1\"\n}",
@@ -56,29 +43,16 @@
                                 "connections"
                             ]
                         }
-                    },
-                    "response": []
+                    }
                 },
                 {
-                    "name": "Инициировать подключение (SBank - Manual)",
+                    "name": "Refresh VBank Connection Data",
                     "event": [
                         {
                             "listen": "test",
                             "script": {
                                 "exec": [
-                                    "pm.test(\"Status code is 200\", function () {",
-                                    "    pm.response.to.have.status(200);",
-                                    "});",
-                                    "",
-                                    "pm.test(\"Response indicates manual approval and returns connection_id\", function () {",
-                                    "    const jsonData = pm.response.json();",
-                                    "    pm.expect(jsonData.status).to.be.oneOf([\"awaiting_authorization\", \"already_initiated\"]);",
-                                    "    pm.expect(jsonData).to.have.property(\"connection_id\");",
-                                    "",
-                                    "    if (jsonData.connection_id) {",
-                                    "        pm.environment.set(\"connection_id_sbank\", jsonData.connection_id);",
-                                    "    }",
-                                    "});"
+                                    "pm.test(\"Status code is 200\",function(){pm.response.to.have.status(200);});pm.test(\"Response status is success_approved\",function(){const d=pm.response.json();pm.expect(d.status).to.eql(\"success_approved\");pm.expect(d).to.have.property(\"accounts_data\");});"
                                 ],
                                 "type": "text/javascript"
                             }
@@ -86,7 +60,169 @@
                     ],
                     "request": {
                         "method": "POST",
-                        "header": [],
+                        "url": {
+                            "raw": "{{base_url}}/users/{{user_id}}/connections/{{connection_id_vbank}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "users",
+                                "{{user_id}}",
+                                "connections",
+                                "{{connection_id_vbank}}"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Delete VBank Connection",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test(\"Status code is 200\",function(){pm.response.to.have.status(200);});pm.test(\"Response confirms deletion\",function(){pm.expect(pm.response.json().status).to.eql(\"deleted\");});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "DELETE",
+                        "url": {
+                            "raw": "{{base_url}}/users/{{user_id}}/connections/{{connection_id_vbank}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "users",
+                                "{{user_id}}",
+                                "connections",
+                                "{{connection_id_vbank}}"
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "ABank Lifecycle (Auto-Approve)",
+            "item": [
+                {
+                    "name": "Create ABank Connection",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test(\"Status code is 200\",function(){pm.response.to.have.status(200);});pm.test(\"Response is valid for create\",function(){const d=pm.response.json();pm.expect(d.status).to.be.oneOf([\"success_auto_approved\",\"already_initiated\"]);pm.expect(d).to.have.property(\"connection_id\");if(d.connection_id)pm.environment.set(\"connection_id_abank\",d.connection_id);});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"bank_name\": \"abank\",\n  \"bank_client_id\": \"{{team_id}}-2\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "url": {
+                            "raw": "{{base_url}}/users/{{user_id}}/connections",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "users",
+                                "{{user_id}}",
+                                "connections"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Refresh ABank Connection Data",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test(\"Status code is 200\",function(){pm.response.to.have.status(200);});pm.test(\"Response status is success_approved\",function(){const d=pm.response.json();pm.expect(d.status).to.eql(\"success_approved\");pm.expect(d).to.have.property(\"accounts_data\");});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "url": {
+                            "raw": "{{base_url}}/users/{{user_id}}/connections/{{connection_id_abank}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "users",
+                                "{{user_id}}",
+                                "connections",
+                                "{{connection_id_abank}}"
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Delete ABank Connection",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test(\"Status code is 200\",function(){pm.response.to.have.status(200);});pm.test(\"Response confirms deletion\",function(){pm.expect(pm.response.json().status).to.eql(\"deleted\");});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "DELETE",
+                        "url": {
+                            "raw": "{{base_url}}/users/{{user_id}}/connections/{{connection_id_abank}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "users",
+                                "{{user_id}}",
+                                "connections",
+                                "{{connection_id_abank}}"
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "SBank Lifecycle (Manual Approve)",
+            "item": [
+                {
+                    "name": "Create SBank Connection",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test(\"Status code is 200\",function(){pm.response.to.have.status(200);});pm.test(\"Response indicates manual approval and returns connection_id\",function(){const d=pm.response.json();pm.expect(d.status).to.be.oneOf([\"awaiting_authorization\",\"already_initiated\"]);pm.expect(d).to.have.property(\"connection_id\");if(d.connection_id)pm.environment.set(\"connection_id_sbank\",d.connection_id);});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
                         "body": {
                             "mode": "raw",
                             "raw": "{\n  \"bank_name\": \"sbank\",\n  \"bank_client_id\": \"{{team_id}}-4\"\n}",
@@ -107,25 +243,16 @@
                                 "connections"
                             ]
                         }
-                    },
-                    "response": []
+                    }
                 },
                 {
-                    "name": "Проверить статус согласия (SBank)",
+                    "name": "Check SBank Consent Status",
                     "event": [
                         {
                             "listen": "test",
                             "script": {
                                 "exec": [
-                                    "pm.test(\"Status code is 200\", function () {",
-                                    "    pm.response.to.have.status(200);",
-                                    "});",
-                                    "",
-                                    "pm.test(\"Response has a valid status\", function () {",
-                                    "    const jsonData = pm.response.json();",
-                                    "    pm.expect(jsonData.status).to.be.a('string');",
-                                    "    console.log(\"Current consent status: \" + jsonData.status);",
-                                    "});"
+                                    "pm.test(\"Status code is 200\",function(){pm.response.to.have.status(200);});pm.test(\"Response has a valid status\",function(){const d=pm.response.json();pm.expect(d.status).to.be.a('string');console.log(\"Current consent status: \"+d.status);});"
                                 ],
                                 "type": "text/javascript"
                             }
@@ -133,7 +260,6 @@
                     ],
                     "request": {
                         "method": "POST",
-                        "header": [],
                         "url": {
                             "raw": "{{base_url}}/users/{{user_id}}/connections/{{connection_id_sbank}}",
                             "host": [
@@ -146,25 +272,50 @@
                                 "{{connection_id_sbank}}"
                             ]
                         }
-                    },
-                    "response": []
+                    }
                 },
                 {
-                    "name": "Получить список подключений",
+                    "name": "Delete SBank Connection",
                     "event": [
                         {
                             "listen": "test",
                             "script": {
                                 "exec": [
-                                    "pm.test(\"Status code is 200\", function () {",
-                                    "    pm.response.to.have.status(200);",
-                                    "});",
-                                    "",
-                                    "pm.test(\"Response is a valid connection list\", function () {",
-                                    "    const jsonData = pm.response.json();",
-                                    "    pm.expect(jsonData).to.have.property(\"count\");",
-                                    "    pm.expect(jsonData).to.have.property(\"connections\").that.is.an('array');",
-                                    "});"
+                                    "pm.test(\"Status code is 200\",function(){pm.response.to.have.status(200);});pm.test(\"Response confirms deletion\",function(){pm.expect(pm.response.json().status).to.eql(\"deleted\");});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "DELETE",
+                        "url": {
+                            "raw": "{{base_url}}/users/{{user_id}}/connections/{{connection_id_sbank}}",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "users",
+                                "{{user_id}}",
+                                "connections",
+                                "{{connection_id_sbank}}"
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "List & Filter Connections",
+            "item": [
+                {
+                    "name": "Get All Connections",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test(\"Status code is 200\",function(){pm.response.to.have.status(200);});pm.test(\"Response is a valid connection list\",function(){const d=pm.response.json();pm.expect(d).to.have.property(\"count\");pm.expect(d).to.have.property(\"connections\").that.is.an('array');});"
                                 ],
                                 "type": "text/javascript"
                             }
@@ -172,7 +323,6 @@
                     ],
                     "request": {
                         "method": "GET",
-                        "header": [],
                         "url": {
                             "raw": "{{base_url}}/users/{{user_id}}/connections",
                             "host": [
@@ -184,110 +334,215 @@
                                 "connections"
                             ]
                         }
-                    },
-                    "response": []
+                    }
                 },
                 {
-                    "name": "Отфильтровать список подключений (по bank_name)",
-                    "event": [
+                    "name": "Advanced Filter Tests (with setup/teardown)",
+                    "item": [
                         {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "pm.test(\"Status code is 200\", function () {",
-                                    "    pm.response.to.have.status(200);",
-                                    "});",
-                                    "",
-                                    "pm.test(\"All connections in the list are from sbank\", function () {",
-                                    "    const jsonData = pm.response.json();",
-                                    "    jsonData.connections.forEach(function(connection) {",
-                                    "        pm.expect(connection.bank_name).to.eql(\"sbank\");",
-                                    "    });",
-                                    "});"
-                                ],
-                                "type": "text/javascript"
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/users/{{user_id}}/connections?bank_name=sbank",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "users",
-                                "{{user_id}}",
-                                "connections"
-                            ],
-                            "query": [
+                            "name": "(SETUP) Create ABank Client for Filtering",
+                            "event": [
                                 {
-                                    "key": "bank_name",
-                                    "value": "sbank"
+                                    "listen": "test",
+                                    "script": {
+                                        "exec": [
+                                            "pm.test(\"Status is 200\", function(){pm.response.to.have.status(200);});",
+                                            "const d=pm.response.json();pm.test(\"Setup connection created\",function(){pm.expect(d.status).to.be.oneOf([\"success_auto_approved\",\"already_initiated\"]);pm.expect(d).to.have.property(\"connection_id\");});",
+                                            "pm.environment.set(\"filter_test_connection_id\",d.connection_id);"
+                                        ],
+                                        "type": "text/javascript"
+                                    }
                                 }
-                            ]
-                        }
-                    },
-                    "response": []
-                },
-                {
-                    "name": "Удалить подключение (VBank)",
-                    "event": [
+                            ],
+                            "request": {
+                                "method": "POST",
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n  \"bank_name\": \"abank\",\n  \"bank_client_id\": \"{{team_id}}-5\"\n}",
+                                    "options": {
+                                        "raw": {
+                                            "language": "json"
+                                        }
+                                    }
+                                },
+                                "url": {
+                                    "raw": "{{base_url}}/users/{{user_id}}/connections",
+                                    "host": [
+                                        "{{base_url}}"
+                                    ],
+                                    "path": [
+                                        "users",
+                                        "{{user_id}}",
+                                        "connections"
+                                    ]
+                                }
+                            }
+                        },
                         {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "pm.test(\"Status code is 200\", function () {",
-                                    "    pm.response.to.have.status(200);",
-                                    "});",
-                                    "",
-                                    "pm.test(\"Response confirms deletion\", function () {",
-                                    "    const jsonData = pm.response.json();",
-                                    "    pm.expect(jsonData.status).to.eql(\"deleted\");",
-                                    "});"
-                                ],
-                                "type": "text/javascript"
+                            "name": "Filter by bank_client_id (Client Exists)",
+                            "event": [
+                                {
+                                    "listen": "test",
+                                    "script": {
+                                        "exec": [
+                                            "pm.test(\"Status is 200\", function(){pm.response.to.have.status(200);});",
+                                            "pm.test(\"Finds exactly one connection\", function(){",
+                                            "    const d = pm.response.json();",
+                                            "    const expected_client_id = pm.environment.get(\"team_id\") + \"-5\";",
+                                            "    pm.expect(d.count).to.eql(1);",
+                                            "    pm.expect(d.connections[0].bank_client_id).to.eql(expected_client_id);",
+                                            "});"
+                                        ],
+                                        "type": "text/javascript"
+                                    }
+                                }
+                            ],
+                            "request": {
+                                "method": "GET",
+                                "url": {
+                                    "raw": "{{base_url}}/users/{{user_id}}/connections?bank_client_id={{team_id}}-5",
+                                    "host": [
+                                        "{{base_url}}"
+                                    ],
+                                    "path": [
+                                        "users",
+                                        "{{user_id}}",
+                                        "connections"
+                                    ],
+                                    "query": [
+                                        {
+                                            "key": "bank_client_id",
+                                            "value": "{{team_id}}-5"
+                                        }
+                                    ]
+                                }
+                            }
+                        },
+                        {
+                            "name": "Filter by bank_name AND bank_client_id (Client Exists)",
+                            "event": [
+                                {
+                                    "listen": "test",
+                                    "script": {
+                                        "exec": [
+                                            "pm.test(\"Status is 200\", function(){pm.response.to.have.status(200);});",
+                                            "pm.test(\"Finds exactly one connection with correct properties\", function(){",
+                                            "    const d = pm.response.json();",
+                                            "    const expected_client_id = pm.environment.get(\"team_id\") + \"-5\";",
+                                            "    pm.expect(d.count).to.eql(1);",
+                                            "    pm.expect(d.connections[0].bank_name).to.eql(\"abank\");",
+                                            "    pm.expect(d.connections[0].bank_client_id).to.eql(expected_client_id);",
+                                            "});"
+                                        ],
+                                        "type": "text/javascript"
+                                    }
+                                }
+                            ],
+                            "request": {
+                                "method": "GET",
+                                "url": {
+                                    "raw": "{{base_url}}/users/{{user_id}}/connections?bank_name=abank&bank_client_id={{team_id}}-5",
+                                    "host": [
+                                        "{{base_url}}"
+                                    ],
+                                    "path": [
+                                        "users",
+                                        "{{user_id}}",
+                                        "connections"
+                                    ],
+                                    "query": [
+                                        {
+                                            "key": "bank_name",
+                                            "value": "abank"
+                                        },
+                                        {
+                                            "key": "bank_client_id",
+                                            "value": "{{team_id}}-5"
+                                        }
+                                    ]
+                                }
+                            }
+                        },
+                        {
+                            "name": "(TEARDOWN) Delete ABank Client for Filtering",
+                            "event": [
+                                {
+                                    "listen": "test",
+                                    "script": {
+                                        "exec": [
+                                            "pm.test(\"Status is 200\",function(){pm.response.to.have.status(200);});",
+                                            "pm.test(\"Response confirms deletion\",function(){pm.expect(pm.response.json().status).to.eql(\"deleted\");});"
+                                        ],
+                                        "type": "text/javascript"
+                                    }
+                                }
+                            ],
+                            "request": {
+                                "method": "DELETE",
+                                "url": {
+                                    "raw": "{{base_url}}/users/{{user_id}}/connections/{{filter_test_connection_id}}",
+                                    "host": [
+                                        "{{base_url}}"
+                                    ],
+                                    "path": [
+                                        "users",
+                                        "{{user_id}}",
+                                        "connections",
+                                        "{{filter_test_connection_id}}"
+                                    ]
+                                }
+                            }
+                        },
+                        {
+                            "name": "Filter by bank_client_id (Client Deleted)",
+                            "event": [
+                                {
+                                    "listen": "test",
+                                    "script": {
+                                        "exec": [
+                                            "pm.test(\"Status is 200\",function(){pm.response.to.have.status(200);});",
+                                            "pm.test(\"Finds zero connections\",function(){const d=pm.response.json();pm.expect(d.count).to.eql(0);pm.expect(d.connections).to.be.an('array').that.is.empty;});"
+                                        ],
+                                        "type": "text/javascript"
+                                    }
+                                }
+                            ],
+                            "request": {
+                                "method": "GET",
+                                "url": {
+                                    "raw": "{{base_url}}/users/{{user_id}}/connections?bank_client_id={{team_id}}-5",
+                                    "host": [
+                                        "{{base_url}}"
+                                    ],
+                                    "path": [
+                                        "users",
+                                        "{{user_id}}",
+                                        "connections"
+                                    ],
+                                    "query": [
+                                        {
+                                            "key": "bank_client_id",
+                                            "value": "{{team_id}}-5"
+                                        }
+                                    ]
+                                }
                             }
                         }
-                    ],
-                    "request": {
-                        "method": "DELETE",
-                        "header": [],
-                        "url": {
-                            "raw": "{{base_url}}/users/{{user_id}}/connections/{{connection_id_vbank}}",
-                            "host": [
-                                "{{base_url}}"
-                            ],
-                            "path": [
-                                "users",
-                                "{{user_id}}",
-                                "connections",
-                                "{{connection_id_vbank}}"
-                            ]
-                        }
-                    },
-                    "response": []
+                    ]
                 }
             ]
         },
         {
-            "name": "2. Edge Cases and Errors",
+            "name": "Edge Cases and Errors",
             "item": [
                 {
-                    "name": "Инициировать подключение (Неверное имя банка)",
+                    "name": "Create Connection (Invalid bank_name)",
                     "event": [
                         {
                             "listen": "test",
                             "script": {
                                 "exec": [
-                                    "pm.test(\"Status code is 404\", function () {",
-                                    "    pm.response.to.have.status(404);",
-                                    "});",
-                                    "pm.test(\"Error message is correct\", function () {",
-                                    "    pm.expect(pm.response.json().detail).to.include(\"not supported\");",
-                                    "});"
+                                    "pm.test(\"Status code is 404\",function(){pm.response.to.have.status(404);});pm.test(\"Error message is correct\",function(){pm.expect(pm.response.json().detail).to.include(\"not supported\");});"
                                 ],
                                 "type": "text/javascript"
                             }
@@ -295,7 +550,6 @@
                     ],
                     "request": {
                         "method": "POST",
-                        "header": [],
                         "body": {
                             "mode": "raw",
                             "raw": "{\n  \"bank_name\": \"wrongbank\",\n  \"bank_client_id\": \"{{team_id}}-1\"\n}",
@@ -316,22 +570,16 @@
                                 "connections"
                             ]
                         }
-                    },
-                    "response": []
+                    }
                 },
                 {
-                    "name": "Инициировать подключение (Несуществующий пользователь)",
+                    "name": "Create Connection (Non-existent user_id)",
                     "event": [
                         {
                             "listen": "test",
                             "script": {
                                 "exec": [
-                                    "pm.test(\"Status code is 404\", function () {",
-                                    "    pm.response.to.have.status(404);",
-                                    "});",
-                                    "pm.test(\"Error message is correct for user not found\", function () {",
-                                    "    pm.expect(pm.response.json().detail).to.eql(\"User not found\");",
-                                    "});"
+                                    "pm.test(\"Status code is 404\",function(){pm.response.to.have.status(404);});pm.test(\"Error message is correct\",function(){pm.expect(pm.response.json().detail).to.eql(\"User not found\");});"
                                 ],
                                 "type": "text/javascript"
                             }
@@ -339,7 +587,6 @@
                     ],
                     "request": {
                         "method": "POST",
-                        "header": [],
                         "body": {
                             "mode": "raw",
                             "raw": "{\n  \"bank_name\": \"vbank\",\n  \"bank_client_id\": \"{{team_id}}-1\"\n}",
@@ -360,19 +607,16 @@
                                 "connections"
                             ]
                         }
-                    },
-                    "response": []
+                    }
                 },
                 {
-                    "name": "Инициировать подключение (Некорректное тело запроса)",
+                    "name": "Create Connection (Invalid body)",
                     "event": [
                         {
                             "listen": "test",
                             "script": {
                                 "exec": [
-                                    "pm.test(\"Status code is 422 (Unprocessable Entity)\", function () {",
-                                    "    pm.response.to.have.status(422);",
-                                    "});"
+                                    "pm.test(\"Status code is 422\",function(){pm.response.to.have.status(422);});"
                                 ],
                                 "type": "text/javascript"
                             }
@@ -380,7 +624,6 @@
                     ],
                     "request": {
                         "method": "POST",
-                        "header": [],
                         "body": {
                             "mode": "raw",
                             "raw": "{\n  \"bank_name\": \"vbank\"\n}",
@@ -401,19 +644,16 @@
                                 "connections"
                             ]
                         }
-                    },
-                    "response": []
+                    }
                 },
                 {
-                    "name": "Удалить несуществующее подключение",
+                    "name": "Delete Non-existent Connection",
                     "event": [
                         {
                             "listen": "test",
                             "script": {
                                 "exec": [
-                                    "pm.test(\"Status code is 404\", function () {",
-                                    "    pm.response.to.have.status(404);",
-                                    "});"
+                                    "pm.test(\"Status code is 404\",function(){pm.response.to.have.status(404);});"
                                 ],
                                 "type": "text/javascript"
                             }
@@ -421,7 +661,6 @@
                     ],
                     "request": {
                         "method": "DELETE",
-                        "header": [],
                         "url": {
                             "raw": "{{base_url}}/users/{{user_id}}/connections/9999",
                             "host": [
@@ -434,8 +673,7 @@
                                 "9999"
                             ]
                         }
-                    },
-                    "response": []
+                    }
                 }
             ]
         }
