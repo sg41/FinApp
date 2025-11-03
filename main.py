@@ -4,7 +4,7 @@ import secrets
 import httpx
 import logging
 from datetime import datetime, timedelta
-from typing import Dict
+from typing import Dict, Optional
 
 from pydantic import BaseModel
 from fastapi import FastAPI, APIRouter, Depends, HTTPException
@@ -75,20 +75,32 @@ async def fetch_accounts(bank_access_token: str, consent_id: str, bank_client_id
 # --- API Эндпоинты ---
 
 @router.get("/", summary="Получить список всех подключений пользователя")
-async def list_connections(user_id: int, db: Session = Depends(get_db)):
+async def list_connections(
+    user_id: int,
+    db: Session = Depends(get_db),
+    bank_name: Optional[str] = None,
+    bank_client_id: Optional[str] = None
+):
+    """
+    Возвращает список подключений.
+    Можно фильтровать по `bank_name` и/или `bank_client_id`.
+    """
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user: raise HTTPException(status_code=404, detail="User not found")
-    connections = db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == user_id).all()
-    return connections
+    
+    query = db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == user_id)
+    
+    if bank_name:
+        query = query.filter(models.ConnectedBank.bank_name == bank_name)
+    
+    if bank_client_id:
+        query = query.filter(models.ConnectedBank.bank_client_id == bank_client_id)
+        
+    connections = query.all()
+    
+    return {"count": len(connections), "connections": connections}
 
-@router.get("/check/{bank_name}/{bank_client_id}", summary="Проверить наличие подключения в БД")
-async def check_connection_exists(user_id: int, bank_name: str, bank_client_id: str, db: Session = Depends(get_db)):
-    if bank_name not in BANK_CONFIGS: raise HTTPException(status_code=404, detail=f"Bank '{bank_name}' not supported.")
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
-    connection = db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == user_id, models.ConnectedBank.bank_name == bank_name, models.ConnectedBank.bank_client_id == bank_client_id).first()
-    if connection: return {"status": "exists", "connection_id": connection.id, "connection_status": connection.status}
-    else: raise HTTPException(status_code=404, detail="Connection not found.")
+# Эндпоинт /check был удален
 
 @router.post("/", summary="Инициировать подключение")
 async def initiate_connection(user_id: int, connection_data: ConnectionRequest, db: Session = Depends(get_db)):
@@ -119,7 +131,6 @@ async def initiate_connection(user_id: int, connection_data: ConnectionRequest, 
         db.add(connection); db.commit()
         return {"status": "awaiting_authorization", "message": "Connection initiated. Please approve and check status.", "connection_id": connection.id}
 
-# --- ИЗМЕНЕНИЕ: Путь изменен на `/{connection_id}` ---
 @router.post("/{connection_id}", summary="Проверить статус согласия")
 async def check_consent_status(user_id: int, connection_id: int, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.id == user_id).first()
