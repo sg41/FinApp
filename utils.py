@@ -8,7 +8,8 @@ from database import get_db  # не нужен напрямую, но модел
 from config import BANK_CONFIGS
 
 logger = logging.getLogger("uvicorn")
-
+def log_request(request: httpx.Request): logger.info(f"--> {request.method} {request.url}\n    Headers: {request.headers}\n    Body: {request.content.decode() if request.content else ''}")
+def log_response(response: httpx.Response): logger.info(f"<-- {response.status_code} URL: {response.url}\n    Response JSON: {response.text}")
 
 async def revoke_bank_consent(connection: ConnectedBank) -> None:
     """

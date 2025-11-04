@@ -13,11 +13,12 @@ from dotenv import load_dotenv
 
 import models
 from database import engine, get_db
-from user_api import router as user_router
 from config import BANK_CONFIGS
-from utils import revoke_bank_consent
+from utils import revoke_bank_consent, log_response, logger
+from auth import router as auth_router
+from user_api import router as user_router
 
-logger = logging.getLogger("uvicorn")
+# logger = logging.getLogger("uvicorn")
 load_dotenv()
 
 CLIENT_ID = os.getenv("CLIENT_ID")
@@ -45,8 +46,7 @@ class ConnectionRequest(BaseModel):
     bank_client_id: str
 
 # --- Вспомогательные функции (без изменений) ---
-def log_request(request: httpx.Request): logger.info(f"--> {request.method} {request.url}\n    Headers: {request.headers}\n    Body: {request.content.decode() if request.content else ''}")
-def log_response(response: httpx.Response): logger.info(f"<-- {response.status_code} URL: {response.url}\n    Response JSON: {response.text}")
+
 async def get_bank_token(bank_name: str) -> str:
     config = BANK_CONFIGS[bank_name]
     cache_entry = BANK_TOKEN_CACHE.get(bank_name)
@@ -187,5 +187,27 @@ async def delete_connection(user_id: int, connection_id: int, db: Session = Depe
     db.commit()
     return {"status": "deleted", "message": "Connection record successfully deleted from the database."}
 
+# @app.middleware("http")
+# async def log_requests(request: httpx.Request, call_next):
+#     # Логируем метод, URL и заголовки
+#     logger.info(f"→ {request.method} {request.url}")
+#     logger.info(f"  Headers: {dict(request.headers)}")
+
+#     # Читаем тело (осторожно!)
+#     body = await request.body()
+#     logger.info(f"  Body: {body.decode('utf-8') if body else '(empty)'}")
+
+#     # Восстанавливаем поток тела для дальнейшего использования
+#     import io
+#     request._body = body  # сохраняем
+#     async def receive():
+#         return {"type": "http.request", "body": body}
+#     request._receive = receive
+
+#     response = await call_next(request)
+#     logger.info(f"← Response status: {response.status_code}")
+#     return response
+
+app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(router)
