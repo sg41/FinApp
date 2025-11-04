@@ -35,23 +35,13 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(new_user)
     return new_user
 
-@router.post("/login", response_model=UserLogin)
+@router.post("/login", response_model=Token) # <-- Также рекомендуется исправить response_model на Token
 async def login(
-    request: Request,  # ← добавили
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    # 1. Показать сырое тело
-    raw_body = await request.body()
-    print("📤 Raw request body:", raw_body.decode('utf-8'))
-
-    # 2. Показать значения из form_data
     email = form_data.username
-    password = form_data.password  # ← БЕЗ unquote!
-
-    print("📧 Email (repr):", repr(email))
-    print("🔑 Password (repr):", repr(password))
-    print("🔑 Password length:", len(password))
+    password = form_data.password
 
     user_obj = authenticate_user(db, email, password)
     if not user_obj:

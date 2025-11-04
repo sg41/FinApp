@@ -3,6 +3,7 @@ import sys
 from sqlalchemy.orm import Session
 import models
 from database import SessionLocal, engine
+from security import get_password_hash # <-- Добавьте этот импорт в начало файла
 
 def reset_database():
     """
@@ -39,10 +40,16 @@ def reset_database():
         print("-> Создаю тестового пользователя с ID=1...")
         # ID указывается вручную, чтобы он был предсказуемым для тестов
         # full_name=None, так как имя мы получаем позже из API
-        new_user = models.User( email="testuser@example.com")
+        print("-> Создаю тестового пользователя с ID=1...")
+        # Установим пароль "password" для нашего тестового пользователя
+        hashed_pw = get_password_hash("password")
+        new_user = models.User(
+            email="testuser@example.com",
+            hashed_password=hashed_pw
+        )
         db.add(new_user)
         db.commit()
-        print("   ...тестовый пользователь успешно создан!")
+        print("   ...тестовый пользователь с паролем 'password' успешно создан!")
         
         print("\nПроцесс сброса и инициализации базы данных успешно завершен!")
 
