@@ -17,8 +17,8 @@ from config import BANK_CONFIGS
 from utils import revoke_bank_consent, log_response, logger
 from auth import router as auth_router
 from user_api import router as user_router
+from deps import get_current_user  # <-- ИМПОРТ ДОБАВЛЕН
 
-# logger = logging.getLogger("uvicorn")
 load_dotenv()
 
 CLIENT_ID = os.getenv("CLIENT_ID")
@@ -70,45 +70,45 @@ async def fetch_accounts(bank_access_token: str, consent_id: str, bank_client_id
     return response.json()
 
 
-# --- API Эндпоинты ---
+# --- API Эндпоинты (С ИЗМЕНЕНИЯМИ) ---
 
 @router.get("/", summary="Получить список всех подключений пользователя")
 async def list_connections(
     user_id: int,
     db: Session = Depends(get_db),
     bank_name: Optional[str] = None,
-    bank_client_id: Optional[str] = None
+    bank_client_id: Optional[str] = None,
+    current_user: models.User = Depends(get_current_user) # <-- ИЗМЕНЕНИЕ
 ):
-    """
-    Возвращает список подключений.
-    Можно фильтровать по `bank_name` и/или `bank_client_id`.
-    """
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
+    if user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Operation not permitted")
     
     query = db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == user_id)
-    
     if bank_name:
         query = query.filter(models.ConnectedBank.bank_name == bank_name)
-    
     if bank_client_id:
         query = query.filter(models.ConnectedBank.bank_client_id == bank_client_id)
-        
     connections = query.all()
-    
     return {"count": len(connections), "connections": connections}
 
-# Эндпоинт /check был удален
-
 @router.post("/", summary="Инициировать подключение")
-async def initiate_connection(user_id: int, connection_data: ConnectionRequest, db: Session = Depends(get_db)):
+async def initiate_connection(
+    user_id: int,
+    connection_data: ConnectionRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # <-- ИЗМЕНЕНИЕ
+):
+    if user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Operation not permitted")
+
     bank_name = connection_data.bank_name
     bank_client_id = connection_data.bank_client_id
     if bank_name not in BANK_CONFIGS: raise HTTPException(status_code=404, detail=f"Bank '{bank_name}' not supported.")
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
     config = BANK_CONFIGS[bank_name]
-    existing_connection = db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == user_id, models.ConnectedBank.bank_name == bank_name, models.ConnectedBank.bank_client_id == bank_client_id).first()
+    
+    # Используем current_user.id вместо user_id из URL для дополнительной безопасности
+    existing_connection = db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == current_user.id, models.ConnectedBank.bank_name == bank_name, models.ConnectedBank.bank_client_id == bank_client_id).first()
+    
     if existing_connection: return {"status": "already_initiated", "message": "Connection has been already initiated.", "connection_id": existing_connection.id}
     bank_access_token = await get_bank_token(bank_name)
     consent_url = f"{config['base_url']}/account-consents/request"
@@ -120,20 +120,26 @@ async def initiate_connection(user_id: int, connection_data: ConnectionRequest, 
     consent_data = response.json()
     if consent_data.get("auto_approved"):
         consent_id = consent_data['consent_id']
-        connection = models.ConnectedBank(user_id=user_id, bank_name=bank_name, bank_client_id=bank_client_id, consent_id=consent_id, status="active")
+        connection = models.ConnectedBank(user_id=current_user.id, bank_name=bank_name, bank_client_id=bank_client_id, consent_id=consent_id, status="active")
         db.add(connection); db.commit()
         return {"status": "success_auto_approved", "message": "Connection created and auto-approved.", "connection_id": connection.id}
     else:
         request_id = consent_data['request_id']
-        connection = models.ConnectedBank(user_id=user_id, bank_name=bank_name, bank_client_id=bank_client_id, request_id=request_id, status="awaitingauthorization")
+        connection = models.ConnectedBank(user_id=current_user.id, bank_name=bank_name, bank_client_id=bank_client_id, request_id=request_id, status="awaitingauthorization")
         db.add(connection); db.commit()
         return {"status": "awaiting_authorization", "message": "Connection initiated. Please approve and check status.", "connection_id": connection.id}
 
 @router.post("/{connection_id}", summary="Проверить статус согласия")
-async def check_consent_status(user_id: int, connection_id: int, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
-    connection = db.query(models.ConnectedBank).filter(models.ConnectedBank.id == connection_id, models.ConnectedBank.user_id == user_id).first()
+async def check_consent_status(
+    user_id: int,
+    connection_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # <-- ИЗМЕНЕНИЕ
+):
+    if user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Operation not permitted")
+
+    connection = db.query(models.ConnectedBank).filter(models.ConnectedBank.id == connection_id, models.ConnectedBank.user_id == current_user.id).first()
     if not connection: raise HTTPException(status_code=404, detail="Connection not found for this user.")
     if connection.status not in ["awaitingauthorization", "active"]: return {"status": connection.status, "message": f"Consent is in a final state: {connection.status}"}
     config = BANK_CONFIGS[connection.bank_name]
@@ -165,48 +171,27 @@ async def check_consent_status(user_id: int, connection_id: int, db: Session = D
         if connection.status != api_status: connection.status = api_status; db.commit()
         return {"status": api_status, "message": f"Consent status is '{api_status}'. Please try again later."}
 
-from utils import revoke_bank_consent
-
 @router.delete("/{connection_id}", summary="Удалить подключение")
-async def delete_connection(user_id: int, connection_id: int, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+async def delete_connection(
+    user_id: int,
+    connection_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user) # <-- ИЗМЕНЕНИЕ
+):
+    if user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Operation not permitted")
+
     connection = db.query(models.ConnectedBank).filter(
         models.ConnectedBank.id == connection_id,
-        models.ConnectedBank.user_id == user_id
+        models.ConnectedBank.user_id == current_user.id
     ).first()
     if not connection:
         raise HTTPException(status_code=404, detail="Connection not found for this user.")
     
-    # Отзываем согласие в банке
     await revoke_bank_consent(connection)
-    
-    # Удаляем из БД
     db.delete(connection)
     db.commit()
     return {"status": "deleted", "message": "Connection record successfully deleted from the database."}
-
-# @app.middleware("http")
-# async def log_requests(request: httpx.Request, call_next):
-#     # Логируем метод, URL и заголовки
-#     logger.info(f"→ {request.method} {request.url}")
-#     logger.info(f"  Headers: {dict(request.headers)}")
-
-#     # Читаем тело (осторожно!)
-#     body = await request.body()
-#     logger.info(f"  Body: {body.decode('utf-8') if body else '(empty)'}")
-
-#     # Восстанавливаем поток тела для дальнейшего использования
-#     import io
-#     request._body = body  # сохраняем
-#     async def receive():
-#         return {"type": "http.request", "body": body}
-#     request._receive = receive
-
-#     response = await call_next(request)
-#     logger.info(f"← Response status: {response.status_code}")
-#     return response
 
 app.include_router(auth_router)
 app.include_router(user_router)
