@@ -3,12 +3,12 @@ import sys
 from sqlalchemy.orm import Session
 import models
 from database import SessionLocal, engine
-from security import get_password_hash # <-- Добавьте этот импорт в начало файла
+from security import get_password_hash # <-- Импортируем хешер паролей
 
 def reset_database():
     """
     Полностью удаляет все таблицы и создает их заново,
-    а затем добавляет одного тестового пользователя.
+    а затем добавляет одного тестового пользователя и одного администратора.
     """
     # --- Блок безопасности ---
     print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
@@ -26,7 +26,7 @@ def reset_database():
     db: Session = SessionLocal()
     
     try:
-        # 1. Удаление всех таблиц, известных Base.metadata
+        # 1. Удаление всех таблиц
         print("-> Удаляю старые таблицы...")
         models.Base.metadata.drop_all(bind=engine)
         print("   ...старые таблицы успешно удалены.")
@@ -36,28 +36,38 @@ def reset_database():
         models.Base.metadata.create_all(bind=engine)
         print("   ...новые таблицы успешно созданы.")
 
-        # 3. Создание тестового пользователя
-        print("-> Создаю тестового пользователя с ID=1...")
-        # ID указывается вручную, чтобы он был предсказуемым для тестов
-        # full_name=None, так как имя мы получаем позже из API
-        print("-> Создаю тестового пользователя с ID=1...")
-        # Установим пароль "password" для нашего тестового пользователя
-        hashed_pw = get_password_hash("password")
+        # 3. Создание ОБЫЧНОГО тестового пользователя
+        print("-> Создаю обычного тестового пользователя (ID=1)...")
+        hashed_pw_user = get_password_hash("password")
         new_user = models.User(
             email="testuser@example.com",
-            hashed_password=hashed_pw
+            hashed_password=hashed_pw_user,
+            is_admin=False
         )
         db.add(new_user)
+        print("   ...обычный пользователь 'testuser@example.com' (пароль: 'password') успешно создан!")
+        
+        # 4. Создание пользователя-АДМИНИСТРАТОРА
+        print("-> Создаю пользователя-администратора (ID=2)...")
+        hashed_pw_admin = get_password_hash("adminpass") # Используем другой пароль для админа
+        new_admin = models.User(
+            email="admin@example.com",
+            hashed_password=hashed_pw_admin,
+            is_admin=True # <-- УСТАНАВЛИВАЕМ ПРАВА АДМИНИСТРАТОРА
+        )
+        db.add(new_admin)
+        print("   ...администратор 'admin@example.com' (пароль: 'adminpass') успешно создан!")
+        
+        # Коммитим все изменения (обоих пользователей)
         db.commit()
-        print("   ...тестовый пользователь с паролем 'password' успешно создан!")
         
         print("\nПроцесс сброса и инициализации базы данных успешно завершен!")
 
     except Exception as e:
         print(f"\nПроизошла ошибка во время сброса базы данных: {e}")
-        db.rollback() # Откатываем транзакцию в случае ошибки
+        db.rollback()
     finally:
-        db.close() # Всегда закрываем сессию
+        db.close()
 
 if __name__ == "__main__":
     reset_database()

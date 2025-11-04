@@ -103,12 +103,12 @@ def update_user_by_admin(
 
 
 @router.delete("/{user_id}", summary="Delete a user by ID (Admins only)")
-def delete_user_by_admin(
+async def delete_user_by_admin( # <-- ИЗМЕНЕНИЕ 1: async def
     user_id: int,
     db: Session = Depends(get_db),
     current_admin: User = Depends(get_current_admin_user)
 ):
-    # ... (код без изменений)
+    """Удаляет пользователя и все связанные с ним данные по ID."""
     target_user = db.query(User).filter(User.id == user_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -119,7 +119,9 @@ def delete_user_by_admin(
     from utils import revoke_bank_consent
     import asyncio
     connections = db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == target_user.id).all()
-    asyncio.run(asyncio.gather(*[revoke_bank_consent(conn) for conn in connections]))
+    
+    # v-- ИЗМЕНЕНИЕ 2: await asyncio.gather вместо asyncio.run --v
+    await asyncio.gather(*[revoke_bank_consent(conn) for conn in connections])
     
     db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == target_user.id).delete()
     db.delete(target_user)
