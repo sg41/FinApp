@@ -39,11 +39,6 @@ router = APIRouter(
 )
 
 BANK_TOKEN_CACHE: Dict[str, Dict] = {}
-# BANK_CONFIGS = {
-#     "vbank": {"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "base_url": "https://vbank.open.bankingapi.ru", "auto_approve": True},
-#     "abank": {"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "base_url": "https://abank.open.bankingapi.ru", "auto_approve": True},
-#     "sbank": {"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "base_url": "https://sbank.open.bankingapi.ru", "auto_approve": False}
-# }
 
 class ConnectionRequest(BaseModel):
     bank_name: str
@@ -169,24 +164,6 @@ async def check_consent_status(user_id: int, connection_id: int, db: Session = D
     else:
         if connection.status != api_status: connection.status = api_status; db.commit()
         return {"status": api_status, "message": f"Consent status is '{api_status}'. Please try again later."}
-
-# @router.delete("/{connection_id}", summary="Удалить подключение")
-# async def delete_connection(user_id: int, connection_id: int, db: Session = Depends(get_db)):
-#     user = db.query(models.User).filter(models.User.id == user_id).first()
-#     if not user: raise HTTPException(status_code=404, detail="User not found")
-#     connection = db.query(models.ConnectedBank).filter(models.ConnectedBank.id == connection_id, models.ConnectedBank.user_id == user_id).first()
-#     if not connection: raise HTTPException(status_code=404, detail="Connection not found for this user.")
-#     id_to_revoke = connection.consent_id or connection.request_id
-#     if id_to_revoke:
-#         config = BANK_CONFIGS[connection.bank_name]
-#         revoke_url = f"{config['base_url']}/account-consents/{id_to_revoke}"
-#         headers = {"x-fapi-interaction-id": config['client_id']}
-#         async with httpx.AsyncClient() as client: response = await client.delete(revoke_url, headers=headers)
-#         log_response(response)
-#         if response.status_code not in [204, 404]: logger.error(f"Банк вернул непредвиденную ошибку при отзыве ресурса {id_to_revoke}: {response.text}")
-#     db.delete(connection)
-#     db.commit()
-#     return {"status": "deleted", "message": "Connection record successfully deleted from the database."}
 
 from utils import revoke_bank_consent
 

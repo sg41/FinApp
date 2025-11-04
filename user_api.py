@@ -81,20 +81,6 @@ def update_user(user_id: int, user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(db_user)
     return db_user
 
-
-# @router.delete("/{user_id}", summary="Удалить пользователя и все его подключения")
-# def delete_user(user_id: int, db: Session = Depends(get_db)):
-#     user = db.query(models.User).filter(models.User.id == user_id).first()
-#     if not user:
-#         raise HTTPException(status_code=404, detail="User not found")
-    
-#     # Удаляем связанные подключения (если каскад не настроен в модели)
-#     db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == user_id).delete()
-    
-#     db.delete(user)
-#     db.commit()
-#     return {"status": "deleted", "message": f"User {user_id} and all connections deleted"}
-
 @router.delete("/{user_id}", summary="Удалить пользователя и все его подключения")
 async def delete_user(user_id: int, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.id == user_id).first()
