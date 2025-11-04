@@ -1,14 +1,16 @@
 // lib/features/home/screens/home_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart'; // <-- Импортируем пакет SVG
-import 'package:flutter/foundation.dart'
-    show kIsWeb; // <-- ДОБАВЬТЕ ЭТОТ ИМПОРТ
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import '../../accounts/screens/accounts_dashboard_screen.dart';
 import '../../../core/services/api_service.dart';
-import '../../accounts/screens/accounts_screen.dart';
+// import '../../accounts/screens/accounts_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final Set<String>? connectedBankNames;
+
+  const HomeScreen({super.key, this.connectedBankNames});
 
   @override
   _HomeScreenState createState() => _HomeScreenState();
@@ -17,11 +19,68 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final ApiService _apiService = ApiService();
   late Future<List<dynamic>> _banks;
+  // Контроллер для текстового поля в диалоге
+  final TextEditingController _bankClientIdController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _banks = _apiService.getBanks();
+  }
+
+  @override
+  void dispose() {
+    _bankClientIdController.dispose();
+    super.dispose();
+  }
+
+  // --- НОВЫЙ МЕТОД: ДИАЛОГ ДЛЯ ВВОДА ID КЛИЕНТА ---
+  Future<void> _showClientIdDialog(String bankName) async {
+    _bankClientIdController.clear(); // Очищаем поле перед показом
+
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: true, // Разрешаем закрытие по тапу вне диалога
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Подключить $bankName'),
+          content: SingleChildScrollView(
+            child: ListBody(
+              children: <Widget>[
+                const Text(
+                  'Пожалуйста, введите ваш идентификатор клиента банка.',
+                ),
+                TextField(
+                  controller: _bankClientIdController,
+                  decoration: const InputDecoration(
+                    hintText: 'Например, my-client-id-123',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Отмена'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: const Text('Подключить'),
+              onPressed: () {
+                // Получаем введенный ID и вызываем подключение
+                final clientId = _bankClientIdController.text;
+                if (clientId.isNotEmpty) {
+                  Navigator.of(context).pop(); // Закрываем диалог
+                  _connectToBank(bankName, clientId); // Вызываем подключение
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   // ВАЖНО: Эта функция корректирует URL для работы с эмулятором Android
@@ -64,35 +123,54 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _connectToBank(String bankName) async {
-    // ... (логика подключения остается без изменений)
+  void _connectToBank(String bankName, String bankClientId) async {
+    // Показываем индикатор загрузки
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
     try {
       final connection = await _apiService.createConnection(
         bankName,
-        "team076-1",
-      );
-      final connectionId = connection['connection_id'];
-
-      final statusResult = await _apiService.checkConnectionStatus(
-        connectionId,
+        bankClientId,
       );
 
-      if (statusResult['status'] == 'success_approved' ||
-          statusResult['status'] == 'success_auto_approved') {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) =>
-                AccountsScreen(accountsData: statusResult['accounts_data']),
-          ),
-        );
+      if (connection['status'] == 'success_auto_approved' ||
+          connection['status'] == 'awaiting_authorization' ||
+          connection['status'] == 'already_initiated') {
+        // Сначала всегда закрываем диалог загрузки
+        Navigator.of(context).pop();
+
+        // Определяем, в каком режиме мы находимся
+        final isAddingMode = widget.connectedBankNames != null;
+
+        // --- ИЗМЕНЕНИЕ ЗДЕСЬ: ЛОГИКА НАВИГАЦИИ ---
+        if (isAddingMode) {
+          // Сценарий 1: Существующий пользователь.
+          // Мы пришли с дашборда, поэтому просто возвращаемся на него,
+          // отправляя сигнал `true` для обновления.
+          Navigator.of(context).pop(true);
+        } else {
+          // Сценарий 2: Новый пользователь.
+          // Он добавил свой первый банк. Заменяем текущий экран (HomeScreen)
+          // на главный дашборд. `pushReplacement` не позволяет вернуться назад.
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => const AccountsDashboardScreen(),
+            ),
+          );
+        }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Подключение в ожидании: ${statusResult['status']}'),
-          ),
-        );
+        throw Exception(connection['message'] ?? 'Неизвестная ошибка');
       }
     } catch (e) {
+      // Закрываем индикатор загрузки, если он еще открыт
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      // Показываем ошибку
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Ошибка подключения: ${e.toString()}')),
       );
@@ -101,52 +179,71 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Определяем, является ли этот экран "главным" или открыт для добавления
+    final isAddingMode = widget.connectedBankNames != null;
+
     return Scaffold(
-      appBar: AppBar(title: const Text("Добро пожаловать в FinApp")),
+      appBar: AppBar(
+        title: Text(isAddingMode ? 'Добавить банк' : 'Выберите банк'),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(8.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "Подключите свои банковские счета, чтобы управлять финансами в одном месте.",
-              style: TextStyle(fontSize: 18),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              "Доступные банки:",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
+            // Показываем приветствие только для новых пользователей
+            if (!isAddingMode)
+              const Padding(
+                padding: EdgeInsets.all(8.0),
+                child: Text(
+                  "Добро пожаловать! Подключите свой первый банковский счет, чтобы начать.",
+                  style: TextStyle(fontSize: 18),
+                ),
+              ),
+            const SizedBox(height: 10),
             Expanded(
               child: FutureBuilder<List<dynamic>>(
                 future: _banks,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());
-                  } else if (snapshot.hasError) {
-                    return Center(child: Text("Ошибка: ${snapshot.error}"));
-                  } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                    return const Center(child: Text("Банки не найдены."));
-                  } else {
-                    return ListView.builder(
-                      itemCount: snapshot.data!.length,
-                      itemBuilder: (context, index) {
-                        final bank = snapshot.data![index];
-                        return Card(
-                          margin: const EdgeInsets.symmetric(
-                            vertical: 4,
-                            horizontal: 8,
-                          ),
-                          child: ListTile(
-                            // Используем свой виджет для отображения иконки
-                            leading: _buildBankIcon(bank['icon_url']),
-                            title: Text(bank['name']),
-                            onTap: () => _connectToBank(bank['name']),
-                          ),
-                        );
-                      },
-                    );
                   }
+                  // ... (обработка ошибок) ...
+
+                  return ListView.builder(
+                    itemCount: snapshot.data!.length,
+                    itemBuilder: (context, index) {
+                      final bank = snapshot.data![index];
+                      final bankName = bank['name'] as String;
+                      // Проверяем, подключен ли уже этот банк
+                      final isConnected =
+                          widget.connectedBankNames?.contains(bankName) ??
+                          false;
+
+                      return Card(
+                        margin: const EdgeInsets.symmetric(
+                          vertical: 4,
+                          horizontal: 8,
+                        ),
+                        color: isConnected
+                            ? Colors.grey[300]
+                            : null, // Серый фон для подключенных
+                        child: ListTile(
+                          leading: _buildBankIcon(bank['icon_url']),
+                          title: Text(bankName),
+                          // Помечаем, если хотя бы один аккаунт этого банка уже подключен
+                          trailing: isConnected
+                              ? const Icon(
+                                  Icons.check_circle_outline,
+                                  color: Colors.blue,
+                                )
+                              : null,
+                          // ВСЕГДА вызываем диалог по нажатию
+                          onTap: () => _showClientIdDialog(bankName),
+                        ),
+                      );
+                    },
+                  );
                 },
               ),
             ),

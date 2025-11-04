@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import '../../../core/services/api_service.dart';
-import '../../home/screens/home_screen.dart';
+import '../../home/screens/home_dispatcher.dart'; // <-- ИМПОРТИРУЕМ НОВЫЙ ДИСПЕТЧЕР
 import '../screens/register_screen.dart'; // <-- 1. ДОБАВЛЕН НУЖНЫЙ ИМПОРТ
 
 class AuthForm extends StatefulWidget {
@@ -37,7 +37,10 @@ class _AuthFormState extends State<AuthForm> {
         // Проверяем, смонтирован ли виджет, перед навигацией
         if (mounted) {
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (context) => const HomeScreen()),
+            // --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+            // Теперь мы всегда переходим на диспетчер,
+            // который сам решит, что показать.
+            MaterialPageRoute(builder: (context) => const HomeDispatcher()),
           );
         }
       } catch (e) {

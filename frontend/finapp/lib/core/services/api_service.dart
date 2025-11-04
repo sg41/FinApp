@@ -88,4 +88,25 @@ class ApiService {
       throw Exception('Не удалось проверить статус подключения');
     }
   }
+
+  Future<List<dynamic>> getConnections() async {
+    String? token = await _getToken();
+    final prefs = await SharedPreferences.getInstance();
+    String? userId = prefs.getString('user_id');
+
+    if (token == null || userId == null) {
+      throw Exception('Пользователь не авторизован');
+    }
+
+    final response = await http.get(
+      Uri.parse('$_baseUrl/users/$userId/connections'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body)['connections'];
+    } else {
+      throw Exception('Не удалось получить список подключений');
+    }
+  }
 }
