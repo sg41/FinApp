@@ -19,6 +19,10 @@ class UserResponse(BaseModel):
     class Config:
         from_attributes = True  # Pydantic v2 (для v1: orm_mode = True)
 
+class UserListResponse(BaseModel):
+    count: int
+    users: List[UserResponse]
+
 
 # --- Роутер ---
 router = APIRouter(
@@ -40,7 +44,7 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
     return db_user
 
 
-@router.get("/", response_model=List[UserResponse], summary="Получить список пользователей")
+@router.get("/", response_model=UserListResponse, summary="Получить список пользователей")
 def get_users(
     user_id: Optional[List[int]] = Query(None, description="Фильтр по ID пользователей. Можно указать несколько: ?user_id=1&user_id=2"),
     db: Session = Depends(get_db)
@@ -48,10 +52,6 @@ def get_users(
     """
     Возвращает список пользователей.
     Можно отфильтровать по одному или нескольким ID через query-параметр `user_id`.
-    Примеры:
-      - /users → все пользователи
-      - /users?user_id=5 → только пользователь с id=5
-      - /users?user_id=1&user_id=3 → пользователи с id=1 и id=3
     """
     query = db.query(models.User)
     
@@ -63,7 +63,7 @@ def get_users(
     if user_id and not users:
         raise HTTPException(status_code=404, detail="No users found with the provided ID(s)")
     
-    return users
+    return UserListResponse(count=len(users), users=users)
 
 @router.put("/{user_id}", response_model=UserResponse, summary="Обновить email пользователя")
 def update_user(user_id: int, user: UserCreate, db: Session = Depends(get_db)):
