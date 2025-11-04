@@ -9,7 +9,7 @@ from urllib.parse import unquote
 from database import get_db
 from models import User
 from security import verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, get_password_hash
-from schemas import UserLogin, Token, UserCreate,UserResponse
+from schemas import UserLogin, Token, UserCreate,UserResponse, TokenWithUser
 from datetime import timedelta
 from utils import log_request, logger
 
@@ -35,7 +35,7 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(new_user)
     return new_user
 
-@router.post("/login", response_model=Token) # <-- Также рекомендуется исправить response_model на Token
+@router.post("/login", response_model=TokenWithUser) # <-- ИЗМЕНЕНИЕ 1: используем новую модель
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
@@ -55,4 +55,9 @@ async def login(
     access_token = create_access_token(
         data={"sub": user_obj.email}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    # v-- ИЗМЕНЕНИЕ 2: добавляем user_id в ответ --v
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": user_obj.id
+    }

@@ -24,6 +24,10 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
+# --- НОВАЯ СХЕМА ---
+class TokenWithUser(Token):
+    user_id: int
+
 class UserResponse(BaseModel):
     id: int
     email: str
@@ -34,3 +38,9 @@ class UserResponse(BaseModel):
 class UserListResponse(BaseModel):
     count: int
     users: list[UserResponse]
+
+
+# --- НОВАЯ СХЕМА ДЛЯ АДМИНИСТРАТОРА ---
+class UserUpdateAdmin(BaseModel):
+    email: Optional[str] = None
+    is_admin: Optional[bool] = None

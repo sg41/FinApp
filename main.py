@@ -17,7 +17,7 @@ from config import BANK_CONFIGS
 from utils import revoke_bank_consent, log_response, logger
 from auth import router as auth_router
 from user_api import router as user_router
-from deps import get_current_user  # <-- ИМПОРТ ДОБАВЛЕН
+from deps import user_is_admin_or_self # <-- ЗАМЕНИТЕ get_current_user НА ЭТО
 
 load_dotenv()
 
@@ -78,10 +78,8 @@ async def list_connections(
     db: Session = Depends(get_db),
     bank_name: Optional[str] = None,
     bank_client_id: Optional[str] = None,
-    current_user: models.User = Depends(get_current_user) # <-- ИЗМЕНЕНИЕ
+    current_user: models.User = Depends(user_is_admin_or_self)
 ):
-    if user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Operation not permitted")
     
     query = db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == user_id)
     if bank_name:
@@ -96,10 +94,8 @@ async def initiate_connection(
     user_id: int,
     connection_data: ConnectionRequest,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user) # <-- ИЗМЕНЕНИЕ
+    current_user: models.User = Depends(user_is_admin_or_self)
 ):
-    if user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Operation not permitted")
 
     bank_name = connection_data.bank_name
     bank_client_id = connection_data.bank_client_id
@@ -134,10 +130,8 @@ async def check_consent_status(
     user_id: int,
     connection_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user) # <-- ИЗМЕНЕНИЕ
+    current_user: models.User = Depends(user_is_admin_or_self)
 ):
-    if user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Operation not permitted")
 
     connection = db.query(models.ConnectedBank).filter(models.ConnectedBank.id == connection_id, models.ConnectedBank.user_id == current_user.id).first()
     if not connection: raise HTTPException(status_code=404, detail="Connection not found for this user.")
@@ -176,10 +170,8 @@ async def delete_connection(
     user_id: int,
     connection_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user) # <-- ИЗМЕНЕНИЕ
+    current_user: models.User = Depends(user_is_admin_or_self)
 ):
-    if user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Operation not permitted")
 
     connection = db.query(models.ConnectedBank).filter(
         models.ConnectedBank.id == connection_id,
