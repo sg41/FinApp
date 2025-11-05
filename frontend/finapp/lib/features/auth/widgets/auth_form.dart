@@ -19,6 +19,19 @@ class _AuthFormState extends State<AuthForm> {
   String _password = '';
   final ApiService _apiService = ApiService();
   bool _isLoading = false;
+  late FocusNode _passwordFocusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _passwordFocusNode = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    _passwordFocusNode.dispose();
+    super.dispose();
+  }
 
   void _submit() async {
     if (_formKey.currentState!.validate()) {
@@ -70,18 +83,25 @@ class _AuthFormState extends State<AuthForm> {
             TextFormField(
               decoration: const InputDecoration(labelText: 'Email'),
               keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
               validator: (value) => value!.isEmpty || !value.contains('@')
                   ? 'Введите корректный email'
                   : null,
               onSaved: (value) => _email = value!,
+              onFieldSubmitted: (_) =>
+                  FocusScope.of(context).requestFocus(_passwordFocusNode),
             ),
+
             TextFormField(
               decoration: const InputDecoration(labelText: 'Пароль'),
               obscureText: true,
+              focusNode: _passwordFocusNode,
+              textInputAction: TextInputAction.done,
               validator: (value) => value!.length < 6
                   ? 'Пароль должен быть не менее 6 символов'
                   : null,
               onSaved: (value) => _password = value!,
+              onFieldSubmitted: (_) => _submit(), // Нажатие Enter вызывает вход
             ),
             const SizedBox(height: 20),
             if (_isLoading)
