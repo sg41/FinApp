@@ -50,9 +50,15 @@ class ApiService {
     }
 
     // 3. Преобразуем карту в список объектов BankWithAccounts для UI
-    return accountsByBank.entries.map((entry) {
+    final bankList = accountsByBank.entries.map((entry) {
       return BankWithAccounts(name: entry.key, accounts: entry.value);
     }).toList();
+
+    // vvv ДОБАВЛЯЕМ СОРТИРОВКУ ПО ИМЕНИ vvv
+    bankList.sort((a, b) => a.name.compareTo(b.name));
+    // ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^
+
+    return bankList;
   }
 
   Future<List<Connection>> getConnections(String token, int userId) async {

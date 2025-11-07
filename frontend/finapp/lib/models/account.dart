@@ -83,6 +83,29 @@ class BankWithAccounts {
 
   BankWithAccounts({required this.name, required this.accounts});
 
+  // vvv НОВЫЙ ГЕТТЕР ДЛЯ ПОДСЧЕТА СУММЫ vvv
+  double get totalBalance {
+    // Используем fold для итерации по счетам и суммирования
+    return accounts.fold(0.0, (sum, account) {
+      try {
+        // Ищем баланс типа 'InterimAvailable'
+        final availableBalance = account.balances.firstWhere(
+          (b) => b.type == 'InterimAvailable',
+          // Если такого нет, возвращаем "пустой" баланс, чтобы не было ошибки
+          orElse: () => Balance(type: '', amount: '0.0', currency: ''),
+        );
+
+        // Пытаемся распарсить сумму и добавить к общей
+        final amount = double.tryParse(availableBalance.amount) ?? 0.0;
+        return sum + amount;
+      } catch (e) {
+        // В случае любой ошибки просто добавляем 0 и продолжаем
+        return sum;
+      }
+    });
+  }
+  // ^^^ КОНЕЦ НОВОГО ГЕТТЕРА ^^^
+
   factory BankWithAccounts.fromJson(Map<String, dynamic> json) {
     var accountList = json['account'] as List? ?? [];
     List<Account> accounts = accountList

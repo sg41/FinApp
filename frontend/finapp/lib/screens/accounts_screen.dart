@@ -21,27 +21,20 @@ class _AccountsScreenState extends State<AccountsScreen> {
   @override
   void initState() {
     super.initState();
-    // Запускаем первоначальную загрузку и фоновое обновление
-    // после того, как первый кадр будет отрисован.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _triggerFullRefresh(isInitialLoad: true);
     });
   }
 
-  /// Загружает данные из нашей БД для отображения в FutureBuilder.
   Future<List<BankWithAccounts>> _fetchAccountsFromDB() {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     if (authProvider.isAuthenticated) {
       return _apiService.getAccounts(authProvider.token!, authProvider.userId!);
     }
-    // Возвращаем пустой список, если пользователь не аутентифицирован.
     return Future.value([]);
   }
 
-  /// Главный метод обновления: проверяет статусы ожидающих подключений,
-  /// обновляет данные по активным и перезагружает UI.
   Future<void> _triggerFullRefresh({bool isInitialLoad = false}) async {
-    // Предотвращаем запуск нового обновления, если одно уже идет.
     if (_isRefreshing) return;
     setState(() {
       _isRefreshing = true;
@@ -76,10 +69,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
         }
       }
 
-      // Выполняем все задачи параллельно и ждем их завершения.
       await Future.wait(allTasks);
 
-      // Не показываем SnackBar при первой невидимой загрузке после логина.
       if (!isInitialLoad && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -99,7 +90,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
       }
     } finally {
       if (mounted) {
-        // Перестраиваем FutureBuilder, чтобы он запросил свежие данные из БД.
         setState(() {
           _isRefreshing = false;
         });
@@ -107,8 +97,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
     }
   }
 
-  /// Переходит на экран подключений и ждет результата.
-  /// Если были изменения, запускает полное обновление.
   void _navigateToConnections() async {
     final result = await Navigator.of(context).pushNamed('/connections');
     if (result == true && mounted) {
@@ -118,80 +106,79 @@ class _AccountsScreenState extends State<AccountsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Мои счета'),
-        actions: [
-          if (_isRefreshing)
-            const Padding(
-              padding: EdgeInsets.only(right: 16.0),
-              child: Center(
-                child: SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(
-                    color: Colors.white,
-                    strokeWidth: 3,
-                  ),
+    // --- vvv ИЗМЕНЕНИЯ ЗДЕСЬ: Scaffold теперь внутри FutureBuilder vvv ---
+    return FutureBuilder<List<BankWithAccounts>>(
+      future: _fetchAccountsFromDB(),
+      builder: (context, snapshot) {
+        // Определяем AppBar до того, как получим данные, чтобы он был на экране всегда
+        Widget? appBarTitle;
+        Widget body;
+
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !_isRefreshing) {
+          body = const Center(child: CircularProgressIndicator());
+        } else if (snapshot.hasError) {
+          body = Center(
+            child: Text('Ошибка загрузки счетов: ${snapshot.error}'),
+          );
+        } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          body = const Center(child: Text('Счетов не найдено.'));
+        } else {
+          // --- ЛОГИКА ПОДСЧЕТА И ПОСТРОЕНИЯ UI ---
+          final banks = snapshot.data!;
+
+          // 1. Считаем общую сумму по всем банкам
+          final double grandTotal = banks.fold(
+            0.0,
+            (sum, bank) => sum + bank.totalBalance,
+          );
+
+          // 2. Формируем заголовок с общей суммой
+          appBarTitle = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Мои счета'),
+              Text(
+                '${grandTotal.toStringAsFixed(2)} RUB',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.normal,
                 ),
               ),
-            )
-          else
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              tooltip: 'Обновить данные',
-              onPressed: _triggerFullRefresh,
-            ),
-          IconButton(
-            icon: const Icon(Icons.link),
-            tooltip: 'Мои подключения',
-            onPressed: _navigateToConnections,
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Выход',
-            onPressed: () {
-              Provider.of<AuthProvider>(context, listen: false).logout();
-            },
-          ),
-        ],
-      ),
-      body: FutureBuilder<List<BankWithAccounts>>(
-        future: _fetchAccountsFromDB(),
-        builder: (context, snapshot) {
-          // Показываем индикатор только при самой первой загрузке.
-          // Во время фоновых обновлений список остается на экране.
-          if (snapshot.connectionState == ConnectionState.waiting &&
-              !_isRefreshing) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return Center(
-              child: Text('Ошибка загрузки счетов: ${snapshot.error}'),
-            );
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('Счетов не найдено.'));
-          }
+            ],
+          );
 
-          final banks = snapshot.data!;
-          return ListView.builder(
+          // 3. Формируем тело списка
+          body = ListView.builder(
             itemCount: banks.length,
             itemBuilder: (ctx, index) {
               final bank = banks[index];
               return Card(
                 margin: const EdgeInsets.all(8.0),
                 child: ExpansionTile(
-                  title: Text(
-                    bank.name.toUpperCase(),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
+                  title: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        bank.name.toUpperCase(),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
+                      Text(
+                        '${bank.totalBalance.toStringAsFixed(2)} RUB',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
                   ),
                   children: bank.accounts.map((account) {
                     final balance = account.balances.isNotEmpty
                         ? account.balances.first
                         : null;
-
                     return ListTile(
                       title: Text(account.nickname),
                       subtitle: Padding(
@@ -233,8 +220,54 @@ class _AccountsScreenState extends State<AccountsScreen> {
               );
             },
           );
-        },
-      ),
+        }
+
+        // Возвращаем Scaffold, который использует подготовленные appBarTitle и body
+        return Scaffold(
+          appBar: AppBar(
+            title:
+                appBarTitle ??
+                const Text(
+                  'Мои счета',
+                ), // Используем заголовок с суммой или простой
+            actions: [
+              if (_isRefreshing)
+                const Padding(
+                  padding: EdgeInsets.only(right: 16.0),
+                  child: Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 3,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Обновить данные',
+                  onPressed: _triggerFullRefresh,
+                ),
+              IconButton(
+                icon: const Icon(Icons.link),
+                tooltip: 'Мои подключения',
+                onPressed: _navigateToConnections,
+              ),
+              IconButton(
+                icon: const Icon(Icons.logout),
+                tooltip: 'Выход',
+                onPressed: () {
+                  Provider.of<AuthProvider>(context, listen: false).logout();
+                },
+              ),
+            ],
+          ),
+          body: body,
+        );
+      },
     );
   }
 }
