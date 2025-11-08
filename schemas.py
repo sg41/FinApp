@@ -2,6 +2,7 @@
 from pydantic import BaseModel, field_validator, Field
 from typing import Optional, List, Any
 from datetime import datetime
+from decimal import Decimal
 
 class UserCreate(BaseModel):
     email: str
@@ -110,3 +111,11 @@ class TransactionListData(BaseModel):
 class TransactionListResponse(BaseModel):
     data: TransactionListData
 # --- ^^^ КОНЕЦ НОВЫХ СХЕМ ^^^ ---
+
+class TurnoverResponse(BaseModel):
+    account_id: str
+    total_credit: Decimal = Field(..., description="Общая сумма поступлений (приход)")
+    total_debit: Decimal = Field(..., description="Общая сумма списаний (расход)")
+    currency: str
+    period_from: Optional[datetime] = None
+    period_to: Optional[datetime] = None

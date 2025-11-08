@@ -3,12 +3,13 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 import models
 from database import get_db
 from deps import user_is_admin_or_self, get_current_user
 from utils import get_bank_token
-from schemas import AccountListResponse, TransactionListResponse # <-- Импортируем новую схему
+from decimal import Decimal
+from schemas import AccountListResponse, TransactionListResponse, TurnoverResponse, TransactionDetail
 
 router = APIRouter(
     prefix="/users/{user_id}/accounts",
@@ -163,7 +164,6 @@ def get_saved_accounts(
     return AccountListResponse(count=len(accounts_data), accounts=accounts_data)
     # --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
 
-# --- vvv НОВЫЙ ЭНДПОИНТ ДЛЯ ПОЛУЧЕНИЯ ТРАНЗАКЦИЙ vvv ---
 @router.get(
     "/{api_account_id}/transactions",
     response_model=TransactionListResponse,
@@ -175,7 +175,9 @@ async def get_transactions(
     from_booking_date_time: Optional[datetime] = Query(None, description="Начало периода в формате ISO 8601"),
     to_booking_date_time: Optional[datetime] = Query(None, description="Конец периода в формате ISO 8601"),
     page: int = Query(1, ge=1, description="Номер страницы"),
+    #           vvv ИЗМЕНЕНИЕ ЗДЕСЬ vvv
     limit: int = Query(50, ge=1, le=100, description="Количество элементов на странице"),
+    #           ^^^ ИЗМЕНЕНИЕ ЗДЕСЬ ^^^
     db: Session = Depends(get_db),
     current_user: models.User = Depends(user_is_admin_or_self)
 ):
@@ -183,7 +185,6 @@ async def get_transactions(
     Запрашивает и возвращает список транзакций для конкретного счета
     непосредственно из API банка.
     """
-    # 1. Найти счет в локальной БД для проверки прав и получения consent_id
     db_account = db.query(models.Account).join(models.ConnectedBank).filter(
         models.Account.api_account_id == api_account_id,
         models.ConnectedBank.user_id == user_id
@@ -196,15 +197,12 @@ async def get_transactions(
     if not connection or connection.status != "active" or not connection.consent_id:
         raise HTTPException(status_code=403, detail="Active connection with consent is required to fetch transactions.")
 
-    # 2. Получить конфигурацию банка
     bank_config = db.query(models.Bank).filter(models.Bank.name == connection.bank_name).first()
     if not bank_config:
          raise HTTPException(status_code=500, detail="Bank configuration not found.")
 
-    # 3. Получить токен доступа к API банка
     bank_access_token = await get_bank_token(connection.bank_name, db)
 
-    # 4. Подготовить и выполнить запрос к API банка
     headers = {
         "Authorization": f"Bearer {bank_access_token}",
         "X-Requesting-Bank": bank_config.client_id,
@@ -224,10 +222,150 @@ async def get_transactions(
         try:
             response = await client.get(transactions_url, headers=headers, params=params)
             response.raise_for_status()
-            return response.json()
+            response_data = response.json()
+
+            if (from_booking_date_time or to_booking_date_time) and "data" in response_data:
+                original_transactions = response_data["data"].get("transaction", [])
+                filtered_transactions = []
+                
+                from_utc = from_booking_date_time.replace(tzinfo=timezone.utc) if from_booking_date_time and from_booking_date_time.tzinfo is None else from_booking_date_time
+                to_utc = to_booking_date_time.replace(tzinfo=timezone.utc) if to_booking_date_time and to_booking_date_time.tzinfo is None else to_booking_date_time
+
+                for trans_data in original_transactions:
+                    try:
+                        transaction = TransactionDetail(**trans_data)
+                        is_in_date_range = True
+                        if from_utc and transaction.bookingDateTime < from_utc:
+                            is_in_date_range = False
+                        if to_utc and transaction.bookingDateTime > to_utc:
+                            is_in_date_range = False
+                        
+                        if is_in_date_range:
+                            filtered_transactions.append(trans_data)
+                    except Exception:
+                        continue 
+
+                response_data["data"]["transaction"] = filtered_transactions
+                
+            return response_data
+
         except httpx.HTTPStatusError as e:
             error_detail = f"Error from bank API: {e.response.status_code} - {e.response.text}"
             raise HTTPException(status_code=e.response.status_code, detail=error_detail)
         except (httpx.RequestError, Exception) as e:
             raise HTTPException(status_code=502, detail=f"Failed to fetch transactions from {connection.bank_name}: {e}")
-# --- ^^^ КОНЕЦ НОВОГО ЭНДПОИНТА ^^^ ---
+
+@router.get(
+    "/{api_account_id}/turnover",
+    response_model=TurnoverResponse,
+    summary="Получить обороты (приход/расход) по счету за период"
+)
+async def get_account_turnover(
+    user_id: int,
+    api_account_id: str,
+    from_booking_date_time: Optional[datetime] = Query(None, description="Начало периода в формате ISO 8601"),
+    to_booking_date_time: Optional[datetime] = Query(None, description="Конец периода в формате ISO 8601"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(user_is_admin_or_self)
+):
+    """
+    Рассчитывает и возвращает общую сумму поступлений и списаний по
+    конкретному счету за указанный период, запрашивая все страницы
+    транзакций из API банка.
+    """
+    db_account = db.query(models.Account).join(models.ConnectedBank).filter(
+        models.Account.api_account_id == api_account_id,
+        models.ConnectedBank.user_id == user_id
+    ).first()
+    if not db_account:
+        raise HTTPException(status_code=404, detail="Account not found or access denied.")
+
+    connection = db_account.connection
+    if not connection or connection.status != "active" or not connection.consent_id:
+        raise HTTPException(status_code=403, detail="Active connection with consent is required.")
+
+    bank_config = db.query(models.Bank).filter(models.Bank.name == connection.bank_name).first()
+    if not bank_config:
+         raise HTTPException(status_code=500, detail="Bank configuration not found.")
+
+    bank_access_token = await get_bank_token(connection.bank_name, db)
+
+    headers = {
+        "Authorization": f"Bearer {bank_access_token}",
+        "X-Requesting-Bank": bank_config.client_id,
+        "X-Consent-Id": connection.consent_id,
+        "Accept": "application/json"
+    }
+    transactions_url = f"{bank_config.base_url}/accounts/{api_account_id}/transactions"
+    
+    #           vvv ИЗМЕНЕНИЕ ЗДЕСЬ vvv
+    base_params = {"limit": 100} # Запрашиваем максимум для уменьшения числа запросов
+    #           ^^^ ИЗМЕНЕНИЕ ЗДЕСЬ ^^^
+    if from_booking_date_time:
+        base_params["from_booking_date_time"] = from_booking_date_time.isoformat()
+    if to_booking_date_time:
+        base_params["to_booking_date_time"] = to_booking_date_time.isoformat()
+
+    total_credit = Decimal("0.0")
+    total_debit = Decimal("0.0")
+    currency = None
+    page = 1
+    
+    from_utc = from_booking_date_time.replace(tzinfo=timezone.utc) if from_booking_date_time and from_booking_date_time.tzinfo is None else from_booking_date_time
+    to_utc = to_booking_date_time.replace(tzinfo=timezone.utc) if to_booking_date_time and to_booking_date_time.tzinfo is None else to_booking_date_time
+
+    async with httpx.AsyncClient() as client:
+        while True:
+            current_params = base_params.copy()
+            current_params["page"] = page
+            
+            try:
+                response = await client.get(transactions_url, headers=headers, params=current_params)
+                response.raise_for_status()
+                response_data = response.json()
+                transactions = response_data.get("data", {}).get("transaction", [])
+                
+                if not transactions:
+                    break
+                
+                for trans_data in transactions:
+                    try:
+                        transaction = TransactionDetail(**trans_data)
+                        
+                        is_in_date_range = True
+                        if from_utc and transaction.bookingDateTime < from_utc:
+                            is_in_date_range = False
+                        if to_utc and transaction.bookingDateTime > to_utc:
+                            is_in_date_range = False
+                        
+                        if not is_in_date_range:
+                            continue
+
+                        if currency is None:
+                            currency = transaction.amount.currency
+                        
+                        amount_decimal = Decimal(transaction.amount.amount)
+                        if transaction.creditDebitIndicator.lower() == 'credit':
+                            total_credit += amount_decimal
+                        elif transaction.creditDebitIndicator.lower() == 'debit':
+                            total_debit += amount_decimal
+                            
+                    except Exception:
+                        continue
+
+                page += 1
+
+            except httpx.HTTPStatusError as e:
+                error_detail = f"Error from bank API: {e.response.status_code} - {e.response.text}"
+                raise HTTPException(status_code=e.response.status_code, detail=error_detail)
+            except (httpx.RequestError, Exception) as e:
+                raise HTTPException(status_code=502, detail=f"Failed to fetch transactions from {connection.bank_name}: {e}")
+
+    return TurnoverResponse(
+        account_id=api_account_id,
+        total_credit=total_credit,
+        total_debit=total_debit,
+        currency=currency or db_account.currency or "N/A",
+        period_from=from_booking_date_time,
+        period_to=to_booking_date_time
+    )
