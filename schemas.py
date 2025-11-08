@@ -1,6 +1,7 @@
 # finance-app-master/schemas.py
 from pydantic import BaseModel, field_validator, Field
 from typing import Optional, List, Any
+from datetime import datetime
 
 class UserCreate(BaseModel):
     email: str
@@ -81,3 +82,31 @@ class AccountSchema(BaseModel):
 class AccountListResponse(BaseModel):
     count: int
     accounts: List[AccountSchema]
+
+# --- vvv НОВЫЕ СХЕМЫ ДЛЯ ТРАНЗАКЦИЙ vvv ---
+class TransactionAmountDetail(BaseModel):
+    amount: str
+    currency: str
+
+class BankTransactionCodeDetail(BaseModel):
+    code: str
+
+class TransactionDetail(BaseModel):
+    accountId: str
+    transactionId: str
+    transactionOinf: Optional[str] = None
+    amount: TransactionAmountDetail
+    creditDebitIndicator: str
+    status: str
+    bookingDateTime: datetime
+    valueDateTime: datetime
+    transactionInformation: Optional[str] = None
+    bankTransactionCode: Optional[BankTransactionCodeDetail] = None
+    code: Optional[str] = None
+
+class TransactionListData(BaseModel):
+    transaction: List[TransactionDetail]
+
+class TransactionListResponse(BaseModel):
+    data: TransactionListData
+# --- ^^^ КОНЕЦ НОВЫХ СХЕМ ^^^ ---

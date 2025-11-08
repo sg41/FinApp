@@ -3,12 +3,12 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List
-
+from datetime import datetime
 import models
 from database import get_db
 from deps import user_is_admin_or_self, get_current_user
 from utils import get_bank_token
-from schemas import AccountListResponse # <-- Импортируем новую схему
+from schemas import AccountListResponse, TransactionListResponse # <-- Импортируем новую схему
 
 router = APIRouter(
     prefix="/users/{user_id}/accounts",
@@ -162,3 +162,72 @@ def get_saved_accounts(
     # Передаем в Pydantic-модель уже подготовленный список словарей
     return AccountListResponse(count=len(accounts_data), accounts=accounts_data)
     # --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
+
+# --- vvv НОВЫЙ ЭНДПОИНТ ДЛЯ ПОЛУЧЕНИЯ ТРАНЗАКЦИЙ vvv ---
+@router.get(
+    "/{api_account_id}/transactions",
+    response_model=TransactionListResponse,
+    summary="Получить транзакции по счету из банка"
+)
+async def get_transactions(
+    user_id: int,
+    api_account_id: str,
+    from_booking_date_time: Optional[datetime] = Query(None, description="Начало периода в формате ISO 8601"),
+    to_booking_date_time: Optional[datetime] = Query(None, description="Конец периода в формате ISO 8601"),
+    page: int = Query(1, ge=1, description="Номер страницы"),
+    limit: int = Query(50, ge=1, le=100, description="Количество элементов на странице"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(user_is_admin_or_self)
+):
+    """
+    Запрашивает и возвращает список транзакций для конкретного счета
+    непосредственно из API банка.
+    """
+    # 1. Найти счет в локальной БД для проверки прав и получения consent_id
+    db_account = db.query(models.Account).join(models.ConnectedBank).filter(
+        models.Account.api_account_id == api_account_id,
+        models.ConnectedBank.user_id == user_id
+    ).first()
+
+    if not db_account:
+        raise HTTPException(status_code=404, detail="Account not found or access denied for this user.")
+
+    connection = db_account.connection
+    if not connection or connection.status != "active" or not connection.consent_id:
+        raise HTTPException(status_code=403, detail="Active connection with consent is required to fetch transactions.")
+
+    # 2. Получить конфигурацию банка
+    bank_config = db.query(models.Bank).filter(models.Bank.name == connection.bank_name).first()
+    if not bank_config:
+         raise HTTPException(status_code=500, detail="Bank configuration not found.")
+
+    # 3. Получить токен доступа к API банка
+    bank_access_token = await get_bank_token(connection.bank_name, db)
+
+    # 4. Подготовить и выполнить запрос к API банка
+    headers = {
+        "Authorization": f"Bearer {bank_access_token}",
+        "X-Requesting-Bank": bank_config.client_id,
+        "X-Consent-Id": connection.consent_id,
+        "Accept": "application/json"
+    }
+    
+    transactions_url = f"{bank_config.base_url}/accounts/{api_account_id}/transactions"
+    
+    params = {"page": page, "limit": limit}
+    if from_booking_date_time:
+        params["from_booking_date_time"] = from_booking_date_time.isoformat()
+    if to_booking_date_time:
+        params["to_booking_date_time"] = to_booking_date_time.isoformat()
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(transactions_url, headers=headers, params=params)
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            error_detail = f"Error from bank API: {e.response.status_code} - {e.response.text}"
+            raise HTTPException(status_code=e.response.status_code, detail=error_detail)
+        except (httpx.RequestError, Exception) as e:
+            raise HTTPException(status_code=502, detail=f"Failed to fetch transactions from {connection.bank_name}: {e}")
+# --- ^^^ КОНЕЦ НОВОГО ЭНДПОИНТА ^^^ ---
