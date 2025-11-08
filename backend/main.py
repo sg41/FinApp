@@ -11,7 +11,7 @@ from user_api import router as user_router
 from banks_api import router as banks_router
 from connections_api import router as connections_router
 from accounts_api import router as accounts_router
-
+from transactions_api import router as transactions_router # <--- ДОБАВЛЕН ИМПОРТ
 
 load_dotenv()
 
@@ -42,3 +42,4 @@ app.include_router(user_router)
 app.include_router(connections_router)
 app.include_router(banks_router)
 app.include_router(accounts_router)
+app.include_router(transactions_router) # <--- ПОДКЛЮЧЕН НОВЫЙ РОУТЕР
