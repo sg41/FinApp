@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../providers/accounts_provider.dart';
 import '../providers/connections_provider.dart'; // <-- Добавляем импорт
 import '../utils/formatting.dart';
+import '../providers/account_details_provider.dart'; // <-- ДОБАВИТЬ ИМПОРТ
 
 class AccountsScreen extends StatefulWidget {
   const AccountsScreen({super.key});
@@ -147,9 +148,20 @@ class _AccountsScreenState extends State<AccountsScreen> {
 
                     return GestureDetector(
                       onTap: () async {
-                        final changed = await Navigator.of(
+                        // VVV ИЗМЕНЕНИЕ ЗДЕСЬ VVV
+                        // 1. Инициализируем провайдер перед переходом
+                        Provider.of<AccountDetailsProvider>(
                           context,
-                        ).pushNamed('/account-details', arguments: account);
+                          listen: false,
+                        ).initialize(account);
+
+                        // 2. Переходим на экран
+                        final changed = await Navigator.of(context).pushNamed(
+                          '/account-details',
+                          // Аргументы больше не нужны, но можно оставить для обратной совместимости
+                          // arguments: account,
+                        );
+                        // ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
                         // Если на экране деталей что-то поменялось, обновляем список
                         if (changed == true) {
                           _triggerFullRefresh();

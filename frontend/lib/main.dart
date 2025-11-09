@@ -12,6 +12,7 @@ import 'screens/connections_screen.dart';
 import 'screens/add_connection_screen.dart';
 import 'screens/account_details_screen.dart'; // <-- ДОБАВИТЬ
 import 'screens/transactions_screen.dart'; // <-- ДОБАВЬТЕ ЭТОТ ИМПОРТ
+import 'providers/account_details_provider.dart'; // <-- ДОБАВИТЬ ИМПОРТ
 
 void main() {
   runApp(const MyApp());
@@ -41,6 +42,10 @@ class MyApp extends StatelessWidget {
               AccountsProvider(auth),
         ),
         // --- КОНЕЦ ИЗМЕНЕНИЯ ---
+        ChangeNotifierProxyProvider<AuthProvider, AccountDetailsProvider>(
+          create: (ctx) => AccountDetailsProvider(null),
+          update: (ctx, auth, _) => AccountDetailsProvider(auth),
+        ),
       ],
       child: Consumer<AuthProvider>(
         builder: (ctx, auth, _) => MaterialApp(
