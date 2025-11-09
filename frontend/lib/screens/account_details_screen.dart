@@ -18,28 +18,27 @@ class AccountDetailsScreen extends StatefulWidget {
 
 class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
   late Account _account;
-  DateTime? _statementDate;
-  DateTime? _paymentDate;
   TurnoverData? _turnoverData;
   bool _isLoadingTurnover = false;
-  bool _dataChanged = false; // Флаг для возврата на предыдущий экран
+  bool _dataChanged = false;
 
   final ApiService _apiService = ApiService();
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Получаем аккаунт из аргументов маршрута
     _account = ModalRoute.of(context)!.settings.arguments as Account;
-    _statementDate = _account.statementDate;
-    _paymentDate = _account.paymentDate;
     // Сразу пытаемся загрузить обороты, если даты уже есть
     _fetchTurnover();
   }
 
+  // --- VVV ОБНОВЛЕННАЯ ЛОГИКА VVV ---
+
   Future<void> _selectDate(BuildContext context, bool isStatementDate) async {
     final initialDate =
-        (isStatementDate ? _statementDate : _paymentDate) ?? DateTime.now();
+        (isStatementDate ? _account.statementDate : _account.paymentDate) ??
+        DateTime.now();
+
     final newDate = await showDatePicker(
       context: context,
       initialDate: initialDate,
@@ -47,47 +46,63 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
       lastDate: DateTime(2100),
     );
 
-    if (newDate != null) {
-      setState(() {
-        if (isStatementDate) {
-          _statementDate = newDate;
-        } else {
-          _paymentDate = newDate;
-        }
-      });
-      await _saveDates();
-      await _fetchTurnover();
-    }
+    if (newDate == null) return;
+
+    // Определяем, какие даты отправлять на сервер
+    final newStatementDate = isStatementDate ? newDate : _account.statementDate;
+    final newPaymentDate = isStatementDate ? _account.paymentDate : newDate;
+
+    // Вызываем единую функцию для сохранения и обновления UI
+    await _saveDatesAndFetchTurnover(
+      statementDate: newStatementDate,
+      paymentDate: newPaymentDate,
+    );
   }
 
-  Future<void> _saveDates() async {
+  Future<void> _saveDatesAndFetchTurnover({
+    DateTime? statementDate,
+    DateTime? paymentDate,
+  }) async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     try {
+      // 1. Сохраняем даты и получаем обновленный объект счета
       final updatedAccount = await _apiService.updateAccountDates(
         userId: authProvider.userId!,
         accountId: _account.id,
         token: authProvider.token!,
-        statementDate: _statementDate,
-        paymentDate: _paymentDate,
+        statementDate: statementDate,
+        paymentDate: paymentDate,
       );
-      // Обновляем локальный стейт аккаунта
+
+      // 2. Обновляем состояние виджета ОДИН РАЗ с новым объектом
+      // Это немедленно отобразит новую дату на экране
       setState(() {
         _account = updatedAccount;
         _dataChanged = true;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Даты сохранены'), backgroundColor: Colors.green),
-      );
+
+      // 3. ТЕПЕРЬ, когда состояние обновлено, запускаем загрузку оборотов
+      await _fetchTurnover();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка сохранения: $e'), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text('Ошибка сохранения: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }
 
   Future<void> _fetchTurnover() async {
-    if (_statementDate == null || _paymentDate == null) {
+    // Используем даты из _account - единственного источника правды
+    if (_account.statementDate == null || _account.paymentDate == null) {
+      // Если даты неполные, убедимся, что обороты не отображаются
+      if (_turnoverData != null) {
+        setState(() {
+          _turnoverData = null;
+        });
+      }
       return;
     }
 
@@ -102,22 +117,30 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
         userId: authProvider.userId!,
         bankId: _account.bankId,
         apiAccountId: _account.apiAccountId,
-        from: _statementDate!,
-        to: _paymentDate!,
+        from: _account.statementDate!,
+        to: _account.paymentDate!,
       );
+      if (!mounted) return;
       setState(() {
         _turnoverData = turnover;
       });
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка загрузки оборотов: $e'), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text('Ошибка загрузки оборотов: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     } finally {
+      if (!mounted) return;
       setState(() {
         _isLoadingTurnover = false;
       });
     }
   }
+
+  // --- ^^^ КОНЕЦ ОБНОВЛЕННОЙ ЛОГИКИ ^^^ ---
 
   @override
   Widget build(BuildContext context) {
@@ -128,9 +151,7 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
         Navigator.of(context).pop(_dataChanged);
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(_account.nickname),
-        ),
+        appBar: AppBar(title: Text(_account.nickname)),
         body: ListView(
           padding: const EdgeInsets.all(16.0),
           children: [
@@ -155,10 +176,14 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Основная информация', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'Основная информация',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
             const Divider(),
             _buildInfoRow('Банк:', _account.bankName.toUpperCase()),
-            if (_account.ownerName != null) _buildInfoRow('Владелец:', _account.ownerName!),
+            if (_account.ownerName != null)
+              _buildInfoRow('Владелец:', _account.ownerName!),
             _buildInfoRow('Тип:', _account.accountType ?? 'N/A'),
             _buildInfoRow('Статус:', _account.status ?? 'N/A'),
             _buildInfoRow('ID счета:', _account.apiAccountId),
@@ -168,9 +193,9 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
             const Divider(),
             ..._account.balances.map(
               (b) => _buildInfoRow(
-                  '${b.type}:',
-                  (num.tryParse(b.amount) ?? 0)
-                      .toFormattedCurrency(b.currency)),
+                '${b.type}:',
+                (num.tryParse(b.amount) ?? 0).toFormattedCurrency(b.currency),
+              ),
             ),
           ],
         ),
@@ -185,21 +210,28 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Отчетный период', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'Отчетный период',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
             const Divider(),
             ListTile(
               title: const Text('Дата выписки'),
-              subtitle: Text(_statementDate != null
-                  ? DateFormat('dd.MM.yyyy').format(_statementDate!)
-                  : 'Не указана'),
+              subtitle: Text(
+                _account.statementDate != null
+                    ? DateFormat('dd.MM.yyyy').format(_account.statementDate!)
+                    : 'Не указана',
+              ),
               trailing: const Icon(Icons.calendar_today),
               onTap: () => _selectDate(context, true),
             ),
             ListTile(
               title: const Text('Дата платежа'),
-              subtitle: Text(_paymentDate != null
-                  ? DateFormat('dd.MM.yyyy').format(_paymentDate!)
-                  : 'Не указана'),
+              subtitle: Text(
+                _account.paymentDate != null
+                    ? DateFormat('dd.MM.yyyy').format(_account.paymentDate!)
+                    : 'Не указана',
+              ),
               trailing: const Icon(Icons.calendar_today),
               onTap: () => _selectDate(context, false),
             ),
@@ -217,18 +249,23 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Обороты за период', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'Обороты за период',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
             const Divider(),
             _buildInfoRow(
               'Приход:',
-              _turnoverData!.totalCredit
-                  .toFormattedCurrency(_turnoverData!.currency),
+              _turnoverData!.totalCredit.toFormattedCurrency(
+                _turnoverData!.currency,
+              ),
               valueColor: Colors.green[700],
             ),
             _buildInfoRow(
               'Расход:',
-              _turnoverData!.totalDebit
-                  .toFormattedCurrency(_turnoverData!.currency),
+              _turnoverData!.totalDebit.toFormattedCurrency(
+                _turnoverData!.currency,
+              ),
               valueColor: Colors.red[700],
             ),
           ],
@@ -244,11 +281,14 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(value,
-              style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: valueColor)),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: valueColor,
+            ),
+          ),
         ],
       ),
     );
