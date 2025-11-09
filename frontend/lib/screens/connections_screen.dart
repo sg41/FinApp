@@ -2,9 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/auth_provider.dart';
-import '../services/api_service.dart';
-import '../models/connection.dart';
+import '../providers/connections_provider.dart';
 
 class ConnectionsScreen extends StatefulWidget {
   const ConnectionsScreen({super.key});
@@ -14,23 +12,14 @@ class ConnectionsScreen extends StatefulWidget {
 }
 
 class _ConnectionsScreenState extends State<ConnectionsScreen> {
-  late Future<List<Connection>> _connectionsFuture;
-  final ApiService _apiService = ApiService();
-  bool _dataChanged = false; // Флаг для отслеживания изменений
+  bool _dataChanged = false;
 
   @override
   void initState() {
     super.initState();
-    _refreshConnections();
-  }
-
-  void _refreshConnections() {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    setState(() {
-      _connectionsFuture = _apiService.getConnections(
-        authProvider.token!,
-        authProvider.userId!,
-      );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<ConnectionsProvider>(context, listen: false)
+          .fetchConnections();
     });
   }
 
@@ -55,36 +44,27 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
 
     if (confirmed == true && mounted) {
       try {
-        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        await _apiService.deleteConnection(
-          authProvider.token!,
-          authProvider.userId!,
-          connectionId,
-        );
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Подключение удалено.')));
-        _dataChanged = true; // Устанавливаем флаг
-        _refreshConnections();
+        await Provider.of<ConnectionsProvider>(context, listen: false)
+            .deleteConnection(connectionId);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Подключение удалено.')));
+        _dataChanged = true;
       } catch (e) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Ошибка удаления: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Ошибка удаления: $e')));
       }
     }
   }
 
   void _navigateAndRefresh() async {
     final result = await Navigator.of(context).pushNamed('/add-connection');
-    if (result == true && mounted) {
-      _dataChanged = true; // Устанавливаем флаг
-      _refreshConnections();
+    if (result == true) {
+      _dataChanged = true;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // --- vvv ВОЗВРАЩАЕМ РАБОЧУЮ ВЕРСИЮ PopScope vvv ---
     return PopScope(
       canPop: false,
       onPopInvoked: (bool didPop) {
@@ -95,20 +75,19 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
       },
       child: Scaffold(
         appBar: AppBar(title: const Text('Мои подключения')),
-        body: FutureBuilder<List<Connection>>(
-          future: _connectionsFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+        body: Consumer<ConnectionsProvider>(
+          builder: (context, connectionsProvider, child) {
+            if (connectionsProvider.isLoading) {
               return const Center(child: CircularProgressIndicator());
-            } else if (snapshot.hasError) {
+            } else if (connectionsProvider.errorMessage != null) {
               return Center(
-                child: Text('Ошибка загрузки подключений: ${snapshot.error}'),
+                child: Text('Ошибка: ${connectionsProvider.errorMessage}'),
               );
-            } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            } else if (connectionsProvider.connections.isEmpty) {
               return const Center(child: Text('Подключений не найдено.'));
             }
 
-            final connections = snapshot.data!;
+            final connections = connectionsProvider.connections;
             return ListView.builder(
               itemCount: connections.length,
               itemBuilder: (ctx, index) {
@@ -153,6 +132,5 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
         ),
       ),
     );
-    // --- ^^^ КОНЕЦ ИСПРАВЛЕНИЯ ^^^ ---
   }
 }

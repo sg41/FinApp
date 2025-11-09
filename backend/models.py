@@ -1,9 +1,10 @@
 # finance-app-master/models.py
 from sqlalchemy import Column, Integer, String, Date, ForeignKey, Boolean, JSON
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, column_property
 from sqlalchemy.dialects.postgresql import JSONB # <-- ИМПОРТИРУЙТЕ JSONB
 from database import Base
 from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy.sql import select
 
 class Bank(Base):
     __tablename__ = "banks"
@@ -63,4 +64,11 @@ class Account(Base):
     
     bank_name = association_proxy("connection", "bank_name")
     bank_client_id = association_proxy("connection", "bank_client_id")
-# --- КОНЕЦ НОВОЙ МОДЕЛИ ---
+    bank_id = column_property(
+        select(Bank.id)
+        .join(ConnectedBank, Bank.name == ConnectedBank.bank_name)
+        .where(ConnectedBank.id == connection_id)
+        .correlate_except(Bank)
+        .scalar_subquery()
+    )
+

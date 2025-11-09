@@ -77,7 +77,8 @@ class AccountSchema(BaseModel):
     # Поля, которые мы добавим вручную в эндпоинте
     bank_client_id: str
     bank_name: str
-
+    bank_id: int  # <-- ДОБАВЬТЕ ЭТО ПОЛЕ
+    
     class Config:
         from_attributes = True
 

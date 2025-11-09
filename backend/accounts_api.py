@@ -131,30 +131,7 @@ def get_saved_accounts(
     accounts_from_db = query.all()
     
     return AccountListResponse(count=len(accounts_from_db), accounts=accounts_from_db)
-    # accounts_data = []
-    # for acc in accounts_from_db:
-    #     acc_dict = {
-    #         "id": acc.id,
-    #         "connection_id": acc.connection_id,
-    #         "api_account_id": acc.api_account_id,
-    #         "status": acc.status,
-    #         "currency": acc.currency,
-    #         "account_type": acc.account_type,
-    #         "account_subtype": acc.account_subtype,
-    #         "nickname": acc.nickname,
-    #         "opening_date": acc.opening_date,
-    #         "statement_date": acc.statement_date,
-    #         "payment_date": acc.payment_date,
-    #         "owner_data": acc.owner_data,
-    #         "balance_data": acc.balance_data,
-    #         "bank_client_id": acc.connection.bank_client_id,
-    #         "bank_name": acc.connection.bank_name,
-    #         "statement_date": acc.statement_date,
-    #         "payment_date": acc.payment_date,
-    #     }
-    #     accounts_data.append(acc_dict)
-
-    # return AccountListResponse(count=len(accounts_data), accounts=accounts_data)
+  
 
 # 2. ДОБАВЛЯЕМ НОВЫЙ МЕТОД ДЛЯ ОБНОВЛЕНИЯ
 @router.put("/{account_id}", response_model=AccountSchema, summary="Обновить детали счета (даты)")

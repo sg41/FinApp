@@ -2,11 +2,15 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'providers/accounts_provider.dart';
 import 'providers/auth_provider.dart';
+import 'providers/banks_provider.dart';
+import 'providers/connections_provider.dart';
 import 'screens/accounts_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/connections_screen.dart';
-import 'screens/add_connection_screen.dart'; // <-- ДОБАВИТЬ
+import 'screens/add_connection_screen.dart';
+import 'screens/account_details_screen.dart'; // <-- ДОБАВИТЬ
 
 void main() {
   runApp(const MyApp());
@@ -17,8 +21,26 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (ctx) => AuthProvider(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (ctx) => AuthProvider()),
+        ChangeNotifierProxyProvider<AuthProvider, BanksProvider>(
+          create: (ctx) => BanksProvider(null),
+          update: (ctx, auth, previousBanksProvider) => BanksProvider(auth),
+        ),
+        ChangeNotifierProxyProvider<AuthProvider, ConnectionsProvider>(
+          create: (ctx) => ConnectionsProvider(null),
+          update: (ctx, auth, previousConnectionsProvider) =>
+              ConnectionsProvider(auth),
+        ),
+        // VVV ИЗМЕНЕНИЕ ЗДЕСЬ: Убираем зависимость от ConnectionsProvider VVV
+        ChangeNotifierProxyProvider<AuthProvider, AccountsProvider>(
+          create: (ctx) => AccountsProvider(null),
+          update: (ctx, auth, previousAccountsProvider) =>
+              AccountsProvider(auth),
+        ),
+        // --- КОНЕЦ ИЗМЕНЕНИЯ ---
+      ],
       child: Consumer<AuthProvider>(
         builder: (ctx, auth, _) => MaterialApp(
           title: 'FinApp',
@@ -40,8 +62,8 @@ class MyApp extends StatelessWidget {
                 ),
           routes: {
             '/connections': (ctx) => const ConnectionsScreen(),
-            '/add-connection': (ctx) =>
-                const AddConnectionScreen(), // <-- ДОБАВИТЬ
+            '/add-connection': (ctx) => const AddConnectionScreen(),
+            '/account-details': (ctx) => const AccountDetailsScreen(),
           },
         ),
       ),

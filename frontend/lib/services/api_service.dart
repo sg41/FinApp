@@ -23,9 +23,7 @@ class ApiService {
     }
   }
 
-  // vvv УПРОЩЕННАЯ И ИСПРАВЛЕННАЯ ФУНКЦИЯ vvv
   Future<List<BankWithAccounts>> getAccounts(String token, int userId) async {
-    // 1. Делаем ОДИН запрос, чтобы получить плоский список всех счетов
     final accountsResponse = await http.get(
       Uri.parse('$API_BASE_URL/users/$userId/accounts/'),
       headers: {'Authorization': 'Bearer $token'},
@@ -38,26 +36,25 @@ class ApiService {
     final accountsBody = json.decode(utf8.decode(accountsResponse.bodyBytes));
     final List<dynamic> accountsJson = accountsBody['accounts'];
 
-    // 2. Группируем счета по имени банка на стороне клиента
     final Map<String, List<Account>> accountsByBank = {};
 
+    // VVV УБИРАЕМ TRY-CATCH, ТЕПЕРЬ ОН НЕ НУЖЕН VVV
     for (var accJson in accountsJson) {
+      // Если здесь снова возникнет ошибка, мы хотим ее увидеть,
+      // а не скрывать.
       final account = Account.fromJson(accJson);
-      // Используем bankName, который теперь приходит вместе со счетом
       final String bankName = account.bankName;
 
       accountsByBank.putIfAbsent(bankName, () => []);
       accountsByBank[bankName]!.add(account);
     }
+    // ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
 
-    // 3. Преобразуем карту в список объектов BankWithAccounts для UI
     final bankList = accountsByBank.entries.map((entry) {
       return BankWithAccounts(name: entry.key, accounts: entry.value);
     }).toList();
 
-    // vvv ДОБАВЛЯЕМ СОРТИРОВКУ ПО ИМЕНИ vvv
     bankList.sort((a, b) => a.name.compareTo(b.name));
-    // ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^
 
     return bankList;
   }

@@ -1,17 +1,16 @@
-// lib/models/account.dart
-
 class Account {
   final int id;
   final String apiAccountId;
   final String nickname;
   final String currency;
   final List<Balance> balances;
-  // vvv НОВЫЕ ПОЛЯ vvv
   final String? ownerName;
   final String? accountType;
   final String? status;
   final String bankClientId;
   final String bankName;
+  // vvv НОВЫЕ ПОЛЯ vvv
+  final int bankId;
   final DateTime? statementDate;
   final DateTime? paymentDate;
 
@@ -21,33 +20,39 @@ class Account {
     required this.nickname,
     required this.currency,
     required this.balances,
-    // vvv ОБНОВЛЯЕМ КОНСТРУКТОР vvv
     this.ownerName,
     this.accountType,
     this.status,
     required this.bankClientId,
     required this.bankName,
+    // vvv ОБНОВЛЯЕМ КОНСТРУКТОР vvv
+    required this.bankId,
     this.statementDate,
     this.paymentDate,
   });
 
   factory Account.fromJson(Map<String, dynamic> json) {
+    // Проверяем наличие и тип bank_id
+    if (json['bank_id'] == null || json['bank_id'] is! int) {
+      // Это исключение будет поймано в ApiService, но оно более информативно
+      throw FormatException(
+        'Invalid or missing bank_id for account ${json['id']}',
+      );
+    }
+
     var balanceList = json['balance_data'] as List? ?? [];
     List<Balance> balances = balanceList
         .map((i) => Balance.fromJson(i))
         .toList();
 
-    // vvv ЛОГИКА ИЗВЛЕЧЕНИЯ НОВЫХ ДАННЫХ vvv
     String? ownerName;
     final ownerData = json['owner_data'] as List?;
     if (ownerData != null && ownerData.isNotEmpty) {
-      // Данные о владельце - это массив, берем имя из первого элемента
       final firstOwner = ownerData.first as Map<String, dynamic>?;
       if (firstOwner != null && firstOwner.containsKey('name')) {
         ownerName = firstOwner['name'];
       }
     }
-    // ^^^ КОНЕЦ ЛОГИКИ ^^^
 
     return Account(
       id: json['id'],
@@ -55,12 +60,12 @@ class Account {
       nickname: json['nickname'] ?? 'N/A',
       currency: json['currency'] ?? 'N/A',
       balances: balances,
-      // vvv ПРИСВАИВАЕМ НОВЫЕ ПОЛЯ vvv
       ownerName: ownerName,
       accountType: json['account_type'],
       status: json['status'],
       bankClientId: json['bank_client_id'] ?? 'N/A',
       bankName: json['bank_name'] ?? 'N/A',
+      bankId: json['bank_id'], // Теперь это безопасно
       statementDate: json['statement_date'] != null
           ? DateTime.parse(json['statement_date'])
           : null,
