@@ -1,7 +1,7 @@
 # finance-app-master/schemas.py
 from pydantic import BaseModel, field_validator, Field
 from typing import Optional, List, Any
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal
 
 class UserCreate(BaseModel):
@@ -72,7 +72,8 @@ class AccountSchema(BaseModel):
     opening_date: Optional[str] = None
     owner_data: Optional[Any] = None
     balance_data: Optional[Any] = None
-    
+    statement_date: Optional[date] = None
+    payment_date: Optional[date] = None
     # Поля, которые мы добавим вручную в эндпоинте
     bank_client_id: str
     bank_name: str
@@ -119,3 +120,7 @@ class TurnoverResponse(BaseModel):
     currency: str
     period_from: Optional[datetime] = None
     period_to: Optional[datetime] = None
+
+class AccountUpdate(BaseModel):
+    statement_date: Optional[date] = None
+    payment_date: Optional[date] = None

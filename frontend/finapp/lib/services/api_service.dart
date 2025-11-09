@@ -6,6 +6,7 @@ import '../utils/constants.dart';
 import '../models/account.dart';
 import '../models/connection.dart';
 import '../models/bank.dart';
+import '../models/turnover_data.dart';
 
 class ApiService {
   Future<Map<String, dynamic>> login(String email, String password) async {
@@ -192,6 +193,75 @@ class ApiService {
     } else {
       final body = json.decode(utf8.decode(response.bodyBytes));
       print('Checked status for connection $connectionId: ${body['status']}');
+    }
+  }
+
+  Future<Account> updateAccountDates({
+    required int userId,
+    required int accountId,
+    required String token,
+    DateTime? statementDate,
+    DateTime? paymentDate,
+  }) async {
+    final Map<String, dynamic> body = {};
+    if (statementDate != null) {
+      // Форматируем дату в "YYYY-MM-DD"
+      body['statement_date'] = statementDate.toIso8601String().substring(0, 10);
+    }
+    if (paymentDate != null) {
+      body['payment_date'] = paymentDate.toIso8601String().substring(0, 10);
+    }
+
+    final response = await http.put(
+      Uri.parse('$API_BASE_URL/users/$userId/accounts/$accountId'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode(body),
+    );
+
+    if (response.statusCode == 200) {
+      return Account.fromJson(json.decode(utf8.decode(response.bodyBytes)));
+    } else {
+      throw Exception('Failed to update account details');
+    }
+  }
+
+  // VVV ДОБАВЬТЕ ЭТОТ МЕТОД VVV
+  Future<TurnoverData> getAccountTurnover({
+    required String token,
+    required int userId,
+    required int bankId, // Этот ID нужен для эндпоинта
+    required String apiAccountId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final uri =
+        Uri.parse(
+          '$API_BASE_URL/users/$userId/banks/$bankId/accounts/$apiAccountId/turnover',
+        ).replace(
+          queryParameters: {
+            'from_booking_date_time': from.toUtc().toIso8601String(),
+            'to_booking_date_time': to.toUtc().toIso8601String(),
+          },
+        );
+
+    final response = await http.get(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      // Используем utf8.decode для правильной обработки кириллицы
+      return TurnoverData.fromJson(
+        json.decode(utf8.decode(response.bodyBytes)),
+      );
+    } else {
+      throw Exception('Failed to load turnover data: ${response.body}');
     }
   }
 }

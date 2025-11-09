@@ -3,9 +3,11 @@ import sys
 import os
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
-import models
-from database import SessionLocal, engine
-from security import get_password_hash
+
+import backend.models as models
+# from backend import models
+from backend.database import SessionLocal, engine
+from backend.security import get_password_hash
 
 load_dotenv()
 

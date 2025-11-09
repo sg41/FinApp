@@ -3,12 +3,12 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List
-
+from datetime import date
 import models
 from database import get_db
 from deps import user_is_admin_or_self, get_current_user
 from utils import get_bank_token
-from schemas import AccountListResponse
+from schemas import AccountListResponse, AccountSchema, AccountUpdate
 
 router = APIRouter(
     prefix="/users/{user_id}/accounts",
@@ -130,23 +130,78 @@ def get_saved_accounts(
 
     accounts_from_db = query.all()
     
-    accounts_data = []
-    for acc in accounts_from_db:
-        acc_dict = {
-            "id": acc.id,
-            "connection_id": acc.connection_id,
-            "api_account_id": acc.api_account_id,
-            "status": acc.status,
-            "currency": acc.currency,
-            "account_type": acc.account_type,
-            "account_subtype": acc.account_subtype,
-            "nickname": acc.nickname,
-            "opening_date": acc.opening_date,
-            "owner_data": acc.owner_data,
-            "balance_data": acc.balance_data,
-            "bank_client_id": acc.connection.bank_client_id,
-            "bank_name": acc.connection.bank_name,
-        }
-        accounts_data.append(acc_dict)
+    return AccountListResponse(count=len(accounts_from_db), accounts=accounts_from_db)
+    # accounts_data = []
+    # for acc in accounts_from_db:
+    #     acc_dict = {
+    #         "id": acc.id,
+    #         "connection_id": acc.connection_id,
+    #         "api_account_id": acc.api_account_id,
+    #         "status": acc.status,
+    #         "currency": acc.currency,
+    #         "account_type": acc.account_type,
+    #         "account_subtype": acc.account_subtype,
+    #         "nickname": acc.nickname,
+    #         "opening_date": acc.opening_date,
+    #         "statement_date": acc.statement_date,
+    #         "payment_date": acc.payment_date,
+    #         "owner_data": acc.owner_data,
+    #         "balance_data": acc.balance_data,
+    #         "bank_client_id": acc.connection.bank_client_id,
+    #         "bank_name": acc.connection.bank_name,
+    #         "statement_date": acc.statement_date,
+    #         "payment_date": acc.payment_date,
+    #     }
+    #     accounts_data.append(acc_dict)
 
-    return AccountListResponse(count=len(accounts_data), accounts=accounts_data)
+    # return AccountListResponse(count=len(accounts_data), accounts=accounts_data)
+
+# 2. ДОБАВЛЯЕМ НОВЫЙ МЕТОД ДЛЯ ОБНОВЛЕНИЯ
+@router.put("/{account_id}", response_model=AccountSchema, summary="Обновить детали счета (даты)")
+def update_account_details(
+    user_id: int,
+    account_id: int,
+    update_data: AccountUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(user_is_admin_or_self)
+):
+    """
+    Обновляет пользовательские данные для счета, такие как дата выписки и платежа.
+    """
+    # Ищем счет и проверяем, что он принадлежит текущему пользователю
+    db_account = db.query(models.Account).join(models.ConnectedBank).filter(
+        models.Account.id == account_id,
+        models.ConnectedBank.user_id == user_id
+    ).first()
+
+    if not db_account:
+        raise HTTPException(status_code=404, detail="Account not found or access denied.")
+
+    # Обновляем поля из полученных данных
+    update_dict = update_data.model_dump(exclude_unset=True)
+    for key, value in update_dict.items():
+        setattr(db_account, key, value)
+    
+    db.commit()
+    db.refresh(db_account)
+    
+    return db_account
+    # # Формируем ответ, аналогично get_saved_accounts
+    # acc_dict = {
+    #     "id": db_account.id,
+    #     "connection_id": db_account.connection_id,
+    #     "api_account_id": db_account.api_account_id,
+    #     "status": db_account.status,
+    #     "currency": db_account.currency,
+    #     "account_type": db_account.account_type,
+    #     "account_subtype": db_account.account_subtype,
+    #     "nickname": db_account.nickname,
+    #     "opening_date": db_account.opening_date,
+    #     "statement_date": db_account.statement_date, # <-- Новые поля
+    #     "payment_date": db_account.payment_date,     # <-- Новые поля
+    #     "owner_data": db_account.owner_data,
+    #     "balance_data": db_account.balance_data,
+    #     "bank_client_id": db_account.connection.bank_client_id,
+    #     "bank_name": db_account.connection.bank_name,
+    # }
+    # return AccountSchema(**acc_dict)

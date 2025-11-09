@@ -1,8 +1,9 @@
 # finance-app-master/models.py
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, JSON
+from sqlalchemy import Column, Integer, String, Date, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB # <-- ИМПОРТИРУЙТЕ JSONB
 from database import Base
+from sqlalchemy.ext.associationproxy import association_proxy
 
 class Bank(Base):
     __tablename__ = "banks"
@@ -51,9 +52,15 @@ class Account(Base):
     nickname = Column(String)
     opening_date = Column(String, nullable=True) # openingDate
     
+    statement_date = Column(Date, nullable=True) # Дата выписки
+    payment_date = Column(Date, nullable=True)   # Дата платежа
+
     # Храним сложные структуры как JSON
     owner_data = Column(JSONB, nullable=True) # Содержимое "account": [...]
     balance_data = Column(JSONB, nullable=True) # Содержимое "balance": [...]
 
     connection = relationship("ConnectedBank", back_populates="accounts")
+    
+    bank_name = association_proxy("connection", "bank_name")
+    bank_client_id = association_proxy("connection", "bank_client_id")
 # --- КОНЕЦ НОВОЙ МОДЕЛИ ---

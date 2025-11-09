@@ -12,6 +12,8 @@ class Account {
   final String? status;
   final String bankClientId;
   final String bankName;
+  final DateTime? statementDate;
+  final DateTime? paymentDate;
 
   Account({
     required this.id,
@@ -25,6 +27,8 @@ class Account {
     this.status,
     required this.bankClientId,
     required this.bankName,
+    this.statementDate,
+    this.paymentDate,
   });
 
   factory Account.fromJson(Map<String, dynamic> json) {
@@ -57,6 +61,12 @@ class Account {
       status: json['status'],
       bankClientId: json['bank_client_id'] ?? 'N/A',
       bankName: json['bank_name'] ?? 'N/A',
+      statementDate: json['statement_date'] != null
+          ? DateTime.parse(json['statement_date'])
+          : null,
+      paymentDate: json['payment_date'] != null
+          ? DateTime.parse(json['payment_date'])
+          : null,
     );
   }
 }
