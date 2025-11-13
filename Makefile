@@ -11,5 +11,9 @@ run:
 database:
 # 	docker compose up -d
 	cd backend; python3 create_test_user.py
+
+dump:
+	python3 project_dump.py -o backend.txt -e .py backend/
+	python3 project_dump.py -o frontend.txt -e .dart frontend/
  
 .PHONY: test
