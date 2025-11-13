@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/accounts_provider.dart';
-import '../providers/connections_provider.dart'; // <-- Добавляем импорт
+import '../providers/connections_provider.dart';
 import '../utils/formatting.dart';
-import '../providers/account_details_provider.dart'; // <-- ДОБАВИТЬ ИМПОРТ
+import '../providers/account_details_provider.dart';
 
 class AccountsScreen extends StatefulWidget {
   const AccountsScreen({super.key});
@@ -20,7 +20,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // --- VVV ИЗМЕНЕНИЕ ЗДЕСЬ VVV ---
       final accountsProvider = Provider.of<AccountsProvider>(
         context,
         listen: false,
@@ -30,16 +29,14 @@ class _AccountsScreenState extends State<AccountsScreen> {
         listen: false,
       );
       accountsProvider.refreshAllData(
-        connectionsProvider: connectionsProvider, // Передаём его сюда
+        connectionsProvider: connectionsProvider,
         isInitialLoad: true,
       );
-      // --- КОНЕЦ ИЗМЕНЕНИЯ ---
     });
   }
 
   Future<void> _triggerFullRefresh() async {
     try {
-      // --- VVV ИЗМЕНЕНИЕ ЗДЕСЬ VVV ---
       final accountsProvider = Provider.of<AccountsProvider>(
         context,
         listen: false,
@@ -49,9 +46,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
         listen: false,
       );
       await accountsProvider.refreshAllData(
-        connectionsProvider: connectionsProvider, // И сюда
+        connectionsProvider: connectionsProvider,
       );
-      // --- КОНЕЦ ИЗМЕНЕНИЯ ---
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -79,7 +75,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
     }
   }
 
-  // ... остальной код build остаётся без изменений
   @override
   Widget build(BuildContext context) {
     return Consumer<AccountsProvider>(
@@ -146,23 +141,21 @@ class _AccountsScreenState extends State<AccountsScreen> {
                         ? account.balances.first
                         : null;
 
-                    return GestureDetector(
+                    // VVV ИЗМЕНЕНИЕ ЗДЕСЬ VVV
+                    // Используем InkWell для обработки нажатий и наведения
+                    return InkWell(
+                      mouseCursor: SystemMouseCursors.click, // Меняем курсор
                       onTap: () async {
-                        // VVV ИЗМЕНЕНИЕ ЗДЕСЬ VVV
-                        // 1. Инициализируем провайдер перед переходом
+                        // Логика перехода на другой экран
                         Provider.of<AccountDetailsProvider>(
                           context,
                           listen: false,
                         ).initialize(account);
 
-                        // 2. Переходим на экран
-                        final changed = await Navigator.of(context).pushNamed(
-                          '/account-details',
-                          // Аргументы больше не нужны, но можно оставить для обратной совместимости
-                          // arguments: account,
-                        );
-                        // ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
-                        // Если на экране деталей что-то поменялось, обновляем список
+                        final changed = await Navigator.of(
+                          context,
+                        ).pushNamed('/account-details');
+
                         if (changed == true) {
                           _triggerFullRefresh();
                         }
@@ -205,6 +198,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
                             : const Text('Нет данных'),
                       ),
                     );
+                    // ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
                   }).toList(),
                 ),
               );
