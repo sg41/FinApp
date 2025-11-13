@@ -77,6 +77,12 @@ class _AccountsScreenState extends State<AccountsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Получаем провайдер один раз, чтобы не вызывать его в цикле
+    final accountDetailsProvider = Provider.of<AccountDetailsProvider>(
+      context,
+      listen: false,
+    );
+
     return Consumer<AccountsProvider>(
       builder: (ctx, accountsProvider, child) {
         Widget? appBarTitle;
@@ -117,6 +123,16 @@ class _AccountsScreenState extends State<AccountsScreen> {
               return Card(
                 margin: const EdgeInsets.all(8.0),
                 child: ExpansionTile(
+                  // VVV ИЗМЕНЕНИЕ ЗДЕСЬ VVV
+                  onExpansionChanged: (isExpanded) {
+                    if (isExpanded) {
+                      // При раскрытии списка предзагружаем данные для каждого счета
+                      for (final account in bank.accounts) {
+                        accountDetailsProvider.fetchTurnoverForAccount(account);
+                      }
+                    }
+                  },
+                  // ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
                   title: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -141,21 +157,19 @@ class _AccountsScreenState extends State<AccountsScreen> {
                         ? account.balances.first
                         : null;
 
-                    // VVV ИЗМЕНЕНИЕ ЗДЕСЬ VVV
-                    // Используем InkWell для обработки нажатий и наведения
                     return InkWell(
-                      mouseCursor: SystemMouseCursors.click, // Меняем курсор
+                      mouseCursor: SystemMouseCursors.click,
                       onTap: () async {
-                        // Логика перехода на другой экран
-                        Provider.of<AccountDetailsProvider>(
-                          context,
-                          listen: false,
-                        ).initialize(account);
+                        // VVV ИЗМЕНЕНИЕ ЗДЕСЬ VVV
+                        // 1. Просто устанавливаем текущий аккаунт.
+                        // Данные уже могут быть предзагружены.
+                        accountDetailsProvider.setCurrentAccount(account);
 
+                        // 2. Переходим на экран
                         final changed = await Navigator.of(
                           context,
                         ).pushNamed('/account-details');
-
+                        // ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
                         if (changed == true) {
                           _triggerFullRefresh();
                         }
@@ -198,7 +212,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
                             : const Text('Нет данных'),
                       ),
                     );
-                    // ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
                   }).toList(),
                 ),
               );
