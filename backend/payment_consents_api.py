@@ -12,34 +12,12 @@ from schemas import (
     PaymentConsentResponse,
     PaymentConsentListResponse,
 )
-from utils import get_bank_token, log_response
+from utils import get_bank_token, log_response, revoke_payment_consent
 
 router = APIRouter(
     prefix="/users/{user_id}/payment-consents",
     tags=["payment_consents"],
 )
-
-
-async def _revoke_payment_consent(consent: models.PaymentConsent, db: Session):
-    """Отзывает согласие на платеж в банке."""
-    id_to_revoke = consent.consent_id or consent.request_id
-    if not id_to_revoke:
-        return
-
-    bank_config = db.query(models.Bank).filter(models.Bank.name == consent.bank_name).first()
-    if not bank_config:
-        print(f"Bank config for {consent.bank_name} not found, skipping revocation.")
-        return
-
-    revoke_url = f"{bank_config.base_url}/payment-consents/{id_to_revoke}"
-    
-    # Для отзыва согласия на платеж требуется токен доступа к банку
-    bank_access_token = await get_bank_token(consent.bank_name, db)
-    headers = {"Authorization": f"Bearer {bank_access_token}"}
-
-    async with httpx.AsyncClient() as client:
-        response = await client.delete(revoke_url, headers=headers)
-        log_response(response)
 
 
 @router.post("/", response_model=PaymentConsentResponse, summary="Инициировать согласие на платеж")
@@ -174,7 +152,7 @@ async def delete_payment_consent(
     if not consent:
         raise HTTPException(status_code=404, detail="Payment consent not found.")
 
-    await _revoke_payment_consent(consent, db)
+    await revoke_payment_consent(consent, db)
     
     db.delete(consent)
     db.commit()

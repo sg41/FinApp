@@ -2,12 +2,12 @@
 import httpx
 import logging
 from sqlalchemy.orm import Session
-from typing import Optional, Dict
+from typing import  Dict
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException
 import models
-from models import ConnectedBank, Bank
+from models import ConnectedBank, Bank, PaymentConsent
 
 
 logger = logging.getLogger("uvicorn")
@@ -46,9 +46,10 @@ async def fetch_accounts(bank_access_token: str, consent_id: str, bank_client_id
 # --- КОНЕЦ ПЕРЕНЕСЕННОГО КОДА ---
 
 
-async def revoke_bank_consent(connection: ConnectedBank, db: Session) -> None:
+# --- vvv ПЕРЕИМЕНОВЫВАЕМ СУЩЕСТВУЮЩУЮ ФУНКЦИЮ ДЛЯ ЯСНОСТИ vvv ---
+async def revoke_account_consent(connection: ConnectedBank, db: Session) -> None:
     """
-    Отзывает согласие (consent или request) в банке по данным подключения.
+    Отзывает согласие на ДОСТУП К СЧЕТАМ (account consent) в банке.
     """
     id_to_revoke = connection.consent_id or connection.request_id
     if not id_to_revoke:
@@ -57,17 +58,47 @@ async def revoke_bank_consent(connection: ConnectedBank, db: Session) -> None:
     bank_name = connection.bank_name
     config = db.query(Bank).filter(Bank.name == bank_name).first()
     if not config:
-        logger.warning(f"Bank config for '{bank_name}' not found in DB for conn {connection.id}. Skipping revocation.")
+        logger.warning(f"Bank config for '{bank_name}' not found for conn {connection.id}. Skipping revocation.")
         return
 
     revoke_url = f"{config.base_url.strip()}/account-consents/{id_to_revoke}"
+    # Для отзыва account-consent токен не нужен, только client_id в заголовке
     headers = {"x-fapi-interaction-id": config.client_id}
 
     try:
         async with httpx.AsyncClient() as client:
             response = await client.delete(revoke_url, headers=headers)
-        logger.info(f"Revoked consent {id_to_revoke} at {revoke_url}: status {response.status_code}")
+        logger.info(f"Revoked account consent {id_to_revoke} at {revoke_url}: status {response.status_code}")
         if response.status_code not in (204, 404):
             logger.error(f"Unexpected status on revoke: {response.status_code}, body: {response.text}")
     except Exception as e:
-        logger.error(f"Failed to revoke consent {id_to_revoke} for bank {bank_name}: {e}")
+        logger.error(f"Failed to revoke account consent {id_to_revoke} for bank {bank_name}: {e}")
+
+# --- vvv ДОБАВЛЯЕМ НОВУЮ ЦЕНТРАЛИЗОВАННУЮ ФУНКЦИЮ vvv ---
+async def revoke_payment_consent(consent: PaymentConsent, db: Session) -> None:
+    """
+    Отзывает согласие НА ПЛАТЕЖ (payment consent) в банке.
+    """
+    id_to_revoke = consent.consent_id or consent.request_id
+    if not id_to_revoke:
+        return
+
+    bank_name = consent.bank_name
+    config = db.query(Bank).filter(Bank.name == bank_name).first()
+    if not config:
+        logger.warning(f"Bank config for '{bank_name}' not found for payment consent {consent.id}. Skipping revocation.")
+        return
+    
+    revoke_url = f"{config.base_url.strip()}/payment-consents/{id_to_revoke}"
+    # Для отзыва payment-consent нужен токен доступа к банку
+    bank_access_token = await get_bank_token(bank_name, db)
+    headers = {"Authorization": f"Bearer {bank_access_token}"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(revoke_url, headers=headers)
+        logger.info(f"Revoked payment consent {id_to_revoke} at {revoke_url}: status {response.status_code}")
+        if response.status_code not in (204, 404):
+            logger.error(f"Unexpected status on payment revoke: {response.status_code}, body: {response.text}")
+    except Exception as e:
+        logger.error(f"Failed to revoke payment consent {id_to_revoke} for bank {bank_name}: {e}")

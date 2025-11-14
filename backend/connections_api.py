@@ -8,7 +8,7 @@ from typing import Optional
 import models
 from database import get_db
 from deps import user_is_admin_or_self
-from utils import get_bank_token, fetch_accounts, revoke_bank_consent, log_response
+from utils import get_bank_token, fetch_accounts, revoke_account_consent, log_response
 
 router = APIRouter(
     prefix="/users/{user_id}/connections",
@@ -128,7 +128,7 @@ async def delete_connection(
     if not connection:
         raise HTTPException(status_code=404, detail="Connection not found for this user.")
     
-    await revoke_bank_consent(connection, db)
+    await revoke_account_consent(connection, db)
     db.delete(connection)
     db.commit()
     return {"status": "deleted", "message": "Connection record successfully deleted from the database."}

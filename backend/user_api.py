@@ -7,6 +7,9 @@ from database import get_db
 from models import User
 from schemas import UserResponse, UserListResponse, UserCreate, UserUpdateAdmin
 from deps import get_current_user, get_current_admin_user
+from utils import revoke_account_consent, revoke_payment_consent
+import asyncio
+
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -47,19 +50,28 @@ def update_my_email(
 
 
 @router.delete("/me", summary="Delete own account")
-def delete_my_account(
+async def delete_my_account( # <-- Меняем на async def
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    from utils import revoke_bank_consent
-    import asyncio
+    # --- vvv ОБНОВЛЕННАЯ ЛОГИКА vvv ---
+    # 1. Собираем все подключения и согласия на платежи
     connections = db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == current_user.id).all()
-    asyncio.run(asyncio.gather(*[revoke_bank_consent(conn, db) for conn in connections]))
+    payment_consents = db.query(models.PaymentConsent).filter(models.PaymentConsent.user_id == current_user.id).all()
+
+    # 2. Создаем задачи на асинхронный отзыв всего в банках
+    account_tasks = [revoke_account_consent(conn, db) for conn in connections]
+    payment_tasks = [revoke_payment_consent(p_consent, db) for p_consent in payment_consents]
     
+    await asyncio.gather(*account_tasks, *payment_tasks)
+    
+    # 3. Удаляем все связанные данные из НАШЕЙ БД
+    db.query(models.PaymentConsent).filter(models.PaymentConsent.user_id == current_user.id).delete()
     db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == current_user.id).delete()
     db.delete(current_user)
     db.commit()
     return {"status": "deleted", "message": "Your account has been deleted"}
+    # --- ^^^ КОНЕЦ ОБНОВЛЕННОЙ ЛОГИКИ ^^^ ---
 
 @router.put("/{user_id}", response_model=UserResponse, summary="Update a user by ID (Admins only)")
 def update_user_by_admin(
@@ -100,13 +112,18 @@ async def delete_user_by_admin(
     if target_user.id == current_admin.id:
         raise HTTPException(status_code=400, detail="Admins cannot delete their own account via this endpoint.")
 
-    from utils import revoke_bank_consent
-    import asyncio
+    # --- vvv ОБНОВЛЕННАЯ ЛОГИКА vvv ---
     connections = db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == target_user.id).all()
+    payment_consents = db.query(models.PaymentConsent).filter(models.PaymentConsent.user_id == target_user.id).all()
     
-    await asyncio.gather(*[revoke_bank_consent(conn, db) for conn in connections])
+    account_tasks = [revoke_account_consent(conn, db) for conn in connections]
+    payment_tasks = [revoke_payment_consent(p_consent, db) for p_consent in payment_consents]
     
+    await asyncio.gather(*account_tasks, *payment_tasks)
+    
+    db.query(models.PaymentConsent).filter(models.PaymentConsent.user_id == target_user.id).delete()
     db.query(models.ConnectedBank).filter(models.ConnectedBank.user_id == target_user.id).delete()
     db.delete(target_user)
     db.commit()
     return {"status": "deleted", "message": f"User {target_user.email} has been deleted."}
+    # --- ^^^ КОНЕЦ ОБНОВЛЕННОЙ ЛОГИКИ ^^^ ---
