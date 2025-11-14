@@ -21,6 +21,7 @@ const String API_BASE_URL_NETWORK = "http://$_yourComputerIP:8001";
 // Перед сборкой для нужной платформы, выберите правильный адрес.
 // Для простоты разработки, мы можем оставить сетевой адрес.
 const String API_BASE_URL = API_BASE_URL_NETWORK;
+// const String API_BASE_URL = API_BASE_URL_ANDROID_EMULATOR;
 
 // Примечание: для автоматического выбора можно использовать Platform API из Dart,
 // но для простоты мы используем константу.

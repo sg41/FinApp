@@ -72,3 +72,21 @@ class Account(Base):
         .scalar_subquery()
     )
 
+# v-- НОВАЯ МОДЕЛЬ ДЛЯ СОГЛАСИЙ НА ПЛАТЕЖИ --v
+class PaymentConsent(Base):
+    __tablename__ = "payment_consents"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    bank_name = Column(String, index=True)
+    bank_client_id = Column(String, index=True)
+    
+    request_id = Column(String, unique=True, nullable=True, index=True)
+    consent_id = Column(String, unique=True, nullable=True)
+    
+    status = Column(String, default="awaitingauthorization")
+    
+    # Сохраняем детали платежа (кому, сколько и т.д.)
+    details = Column(JSONB, nullable=True)
+
+    user = relationship("User")
