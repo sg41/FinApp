@@ -24,7 +24,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   late Future<List<Transaction>> _transactionsFuture;
   final ApiService _apiService = ApiService();
 
-  // Переменная _transactions теперь будет хранить результат Future для экспорта
   List<Transaction> _transactions = [];
   bool _isExporting = false;
 
@@ -48,12 +47,54 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     );
   }
 
+  // --- vvv ИЗМЕНЕННЫЙ МЕТОД vvv ---
   Future<void> _exportToExcel() async {
     if (_transactions.isEmpty) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Нет данных для экспорта.')));
       return;
+    }
+
+    // 1. Предлагаем имя файла по умолчанию
+    final defaultFileName =
+        'transactions_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.xlsx';
+    final fileNameController = TextEditingController(text: defaultFileName);
+
+    // 2. Показываем диалог для ввода имени файла
+    final chosenFileName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Экспорт в Excel'),
+        content: TextField(
+          controller: fileNameController,
+          decoration: const InputDecoration(labelText: 'Имя файла'),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            child: const Text('Отмена'),
+            onPressed: () => Navigator.of(ctx).pop(),
+          ),
+          ElevatedButton(
+            child: const Text('Сохранить'),
+            onPressed: () => Navigator.of(ctx).pop(fileNameController.text),
+          ),
+        ],
+      ),
+    );
+
+    fileNameController.dispose();
+
+    // 3. Если пользователь отменил диалог или ввел пустое имя, выходим
+    if (chosenFileName == null || chosenFileName.isEmpty) {
+      return;
+    }
+
+    // 4. Гарантируем, что у файла есть расширение .xlsx
+    String finalFileName = chosenFileName;
+    if (!finalFileName.toLowerCase().endsWith('.xlsx')) {
+      finalFileName += '.xlsx';
     }
 
     setState(() {
@@ -91,10 +132,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
       final fileBytes = excel.encode();
       if (fileBytes != null) {
-        final date = DateFormat('yyyy-MM-dd').format(DateTime.now());
-
+        // 5. Используем выбранное пользователем имя файла
         await FileSaver.instance.saveFile(
-          name: 'transactions_$date.xlsx',
+          name: finalFileName,
           bytes: Uint8List.fromList(fileBytes),
           mimeType: MimeType.microsoftExcel,
         );
@@ -115,6 +155,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       }
     }
   }
+  // --- ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^ ---
+
 
   @override
   Widget build(BuildContext context) {
@@ -123,11 +165,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     final fromDate = args['fromDate'] as DateTime;
     final toDate = args['toDate'] as DateTime;
 
-    // VVV ВСЯ ЛОГИКА ТЕПЕРЬ ВНУТРИ FUTUREBUILDER VVV
     return FutureBuilder<List<Transaction>>(
       future: _transactionsFuture,
       builder: (context, snapshot) {
-        // Определяем AppBar для всех состояний
         final appBar = AppBar(
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -158,7 +198,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               IconButton(
                 icon: const Icon(Icons.download),
                 tooltip: 'Экспорт в Excel',
-                // Кнопка активна только если есть данные
                 onPressed: (snapshot.hasData && snapshot.data!.isNotEmpty)
                     ? _exportToExcel
                     : null,
@@ -166,7 +205,6 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           ],
         );
 
-        // Определяем тело в зависимости от состояния
         Widget body;
         if (snapshot.connectionState == ConnectionState.waiting) {
           body = const Center(child: CircularProgressIndicator());
@@ -217,11 +255,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
             },
           );
         }
-
-        // Возвращаем Scaffold, который перерисовывается целиком
         return Scaffold(appBar: appBar, body: body);
       },
     );
-    // ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^
   }
 }
