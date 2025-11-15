@@ -11,8 +11,9 @@ from user_api import router as user_router
 from banks_api import router as banks_router
 from connections_api import router as connections_router
 from accounts_api import router as accounts_router
-from transactions_api import router as transactions_router # <--- ДОБАВЛЕН ИМПОРТ
-from payment_consents_api import router as payment_consents_router # <--- ДОБАВЛЕН ИМПОРТ
+from transactions_api import router as transactions_router 
+from payment_consents_api import router as payment_consents_router
+from payments_api import router as payments_router # <--- ДОБАВЛЕН ИМПОРТ
 
 load_dotenv()
 
@@ -43,5 +44,6 @@ app.include_router(user_router)
 app.include_router(connections_router)
 app.include_router(banks_router)
 app.include_router(accounts_router)
-app.include_router(transactions_router) # <--- ПОДКЛЮЧЕН НОВЫЙ РОУТЕР
-app.include_router(payment_consents_router) # <--- ПОДКЛЮЧЕН НОВЫЙ РОУТЕР
+app.include_router(transactions_router)
+app.include_router(payment_consents_router)
+app.include_router(payments_router) # <--- ПОДКЛЮЧЕН НОВЫЙ РОУТЕР

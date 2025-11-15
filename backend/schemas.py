@@ -164,3 +164,54 @@ class TurnoverResponse(BaseModel):
 class AccountUpdate(BaseModel):
     statement_date: Optional[date] = None
     payment_date: Optional[date] = None
+
+# --- vvv НОВЫЕ СХЕМЫ ДЛЯ ПЛАТЕЖЕЙ vvv ---
+
+# Схема для ответа от API банка при создании платежа
+class BankPaymentData(BaseModel):
+    paymentId: str
+    status: str
+    creationDateTime: datetime
+
+
+class BankPaymentResponse(BaseModel):
+    data: BankPaymentData
+
+
+# Схема для инициации внешнего платежа
+class PaymentInitiate(BaseModel):
+    payment_consent_id: int = Field(..., description="ID нашего согласия на платеж в БД")
+    debtor_account_id: int = Field(..., description="ID счета списания в нашей БД")
+    creditor_name: str = Field(..., example="Иванов Иван")
+    creditor_account: str = Field(..., example="40817810000000000002")
+    creditor_bank_code: str = Field(..., example="044525225") 
+    amount: Decimal = Field(..., max_digits=10, decimal_places=2, example=150.50)
+    currency: str = Field(..., example="RUB")
+    reference: str = Field(..., example="Оплата услуг")
+
+# Схема для инициации перевода между своими счетами
+class InternalTransferInitiate(BaseModel):
+    payment_consent_id: int = Field(..., description="ID нашего согласия на платеж в БД")
+    debtor_account_id: int = Field(..., description="ID счета списания в нашей БД")
+    creditor_account_id: int = Field(..., description="ID счета зачисления в нашей БД")
+    amount: Decimal = Field(..., max_digits=10, decimal_places=2, example=1000.00)
+    currency: str = Field(..., example="RUB")
+    reference: Optional[str] = "Перевод между своими счетами"
+    
+# Схемы для получения статуса платежа
+class PaymentStatusAmount(BaseModel):
+    amount: str
+    currency: str
+
+class PaymentStatusData(BaseModel):
+    paymentId: str
+    status: str
+    creationDateTime: datetime
+    statusUpdateDateTime: datetime
+    instructedAmount: PaymentStatusAmount
+    description: Optional[str] = None
+
+class PaymentStatusResponse(BaseModel):
+    data: PaymentStatusData
+
+# --- ^^^ КОНЕЦ НОВЫХ СХЕМ ^^^ ---
