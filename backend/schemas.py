@@ -116,25 +116,28 @@ class TransactionListResponse(BaseModel):
 
 # --- vvv НОВЫЕ СХЕМЫ ДЛЯ СОГЛАСИЙ НА ПЛАТЕЖИ vvv ---
 class PaymentConsentInitiate(BaseModel):
+    # Обязательные поля для любого типа согласия
     bank_name: str
-    bank_client_id: str
-    consent_type: str = Field(..., example="single_use")
-    currency: str = Field(..., example="RUB")
+    # vvv ИЗМЕНЕНИЕ: Переименовываем поле, чтобы оно соответствовало API банка vvv
+    client_id: str = Field(..., description="ID клиента в банке")
+    # ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
+    consent_type: str = Field(..., description="Тип согласия: 'single_use', 'multi_use', 'vrp'")
+    debtor_account: str = Field(..., description="Счет списания")
+    currency: str = Field("RUB", description="Валюта")
     
-    # --- vvv ГЛАВНОЕ ИЗМЕНЕНИЕ ЗДЕСЬ vvv ---
-    # Меняем тип с str на Decimal. Pydantic будет автоматически валидировать
-    # и преобразовывать входящие данные (числа или строки) в Decimal.
-    # Field(...) добавляет валидацию на уровне базы данных для чисел.
-    amount: Decimal = Field(..., max_digits=10, decimal_places=2, example=150.50)
-    # --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
-    
-    debtor_account: str = Field(..., example="40817810000000000001") # Счет списания
-    creditor_name: str = Field(..., example="Иванов Иван") # Имя получателя
-    creditor_account: str = Field(..., example="40817810000000000002") # Счет получателя
-    reference: str = Field(..., example="Оплата услуг") # Назначение платежа
-
-    # Валидатор, который мы добавляли ранее, больше не нужен,
-    # так как Pydantic теперь сам управляет типом. Удалите его.
+    # ... (остальные поля без изменений) ...
+    amount: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2, description="Сумма для одноразового платежа")
+    creditor_name: Optional[str] = Field(None, description="Имя получателя")
+    creditor_account: Optional[str] = Field(None, description="Счет получателя")
+    max_uses: Optional[int] = Field(None, description="Макс. количество использований")
+    max_amount_per_payment: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2, description="Макс. сумма одного платежа")
+    max_total_amount: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2, description="Общий лимит по сумме")
+    allowed_creditor_accounts: Optional[List[str]] = Field(None, description="Список разрешенных счетов получателей")
+    valid_until: Optional[datetime] = Field(None, description="Действителен до")
+    vrp_max_individual_amount: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2, description="VRP: Макс. сумма одного платежа")
+    vrp_daily_limit: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2, description="VRP: Дневной лимит")
+    vrp_monthly_limit: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2, description="VRP: Месячный лимит")
+    reference: Optional[str] = Field(None, description="Назначение платежа")
 
 
 class PaymentConsentResponse(BaseModel):
@@ -184,7 +187,9 @@ class PaymentInitiate(BaseModel):
     debtor_account_id: int = Field(..., description="ID счета списания в нашей БД")
     creditor_name: str = Field(..., example="Иванов Иван")
     creditor_account: str = Field(..., example="40817810000000000002")
-    creditor_bank_code: str = Field(..., example="044525225") 
+    # vvv ИЗМЕНЕНИЕ ЗДЕСЬ vvv
+    creditor_bank_code: str = Field(..., description="Символьный код банка получателя (например, 'abank')", example="abank") 
+    # ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
     amount: Decimal = Field(..., max_digits=10, decimal_places=2, example=150.50)
     currency: str = Field(..., example="RUB")
     reference: str = Field(..., example="Оплата услуг")

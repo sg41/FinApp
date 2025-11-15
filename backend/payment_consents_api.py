@@ -3,6 +3,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+from decimal import Decimal
 
 import models
 from database import get_db
@@ -41,18 +42,16 @@ async def initiate_payment_consent(
         "X-Requesting-Bank": bank_config.client_id,
     }
     
-    # Формируем тело запроса к API банка на основе pydantic модели
-    api_body = {
-        "requesting_bank": bank_config.client_id,
-        "client_id": consent_data.bank_client_id,
-        "consent_type": consent_data.consent_type,
-        "debtor_account": consent_data.debtor_account,
-        "creditor_name": consent_data.creditor_name,
-        "creditor_account": consent_data.creditor_account,
-        "amount": float(consent_data.amount),
-        "currency": consent_data.currency,
-        "reference": consent_data.reference,
-    }
+    # vvv ИЗМЕНЕНИЕ: Упрощаем создание тела запроса vvv
+    # Теперь .model_dump() сразу вернет словарь с правильным полем 'client_id'
+    api_body = consent_data.model_dump(exclude_unset=True, exclude={"bank_name"})
+    # ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
+    
+    api_body["requesting_bank"] = bank_config.client_id
+
+    for key, value in api_body.items():
+        if isinstance(value, Decimal):
+            api_body[key] = str(value)
 
     async with httpx.AsyncClient() as client:
         response = await client.post(request_url, headers=headers, json=api_body)
@@ -66,18 +65,19 @@ async def initiate_payment_consent(
     new_consent = models.PaymentConsent(
         user_id=user_id,
         bank_name=consent_data.bank_name,
-        bank_client_id=consent_data.bank_client_id,
+        # vvv ИЗМЕНЕНИЕ: Используем правильное имя поля vvv
+        bank_client_id=consent_data.client_id,
+        # ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
         request_id=response_data.get("request_id"),
-        consent_id=response_data.get("consent_id"), # Может быть null
+        consent_id=response_data.get("consent_id"),
         status=response_data.get("status", "awaitingauthorization").lower(),
-        details=api_body # Сохраняем детали платежа
+        details=api_body
     )
     db.add(new_consent)
     db.commit()
     db.refresh(new_consent)
 
     return new_consent
-
 
 @router.get("/", response_model=PaymentConsentListResponse, summary="Получить список согласий на платежи")
 def list_payment_consents(
@@ -126,12 +126,18 @@ async def check_payment_consent_status(
     response_data = response.json()
     api_status = response_data.get("status", "unknown").lower()
     
+    # --- vvv ГЛАВНОЕ ИЗМЕНЕНИЕ ЗДЕСЬ vvv ---
+    # Проверяем, изменился ли статус в API, и обновляем нашу БД.
     if api_status != consent.status:
-        consent.status = api_status
-        if api_status == "authorized" and response_data.get("consent_id"):
+        consent.status = api_status  # Обновляем статус (approved, rejected и т.д.)
+
+        # Если статус "approved", дополнительно сохраняем consent_id
+        if api_status == "approved" and response_data.get("consent_id"):
             consent.consent_id = response_data["consent_id"]
+        
         db.commit()
         db.refresh(consent)
+    # --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
         
     return consent
 
