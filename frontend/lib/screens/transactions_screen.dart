@@ -3,9 +3,12 @@
 import 'dart:typed_data';
 import 'package:excel/excel.dart';
 import 'package:file_saver/file_saver.dart';
+import 'package:flutter/foundation.dart' show kIsWeb; // Для определения Web-платформы
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:file_picker/file_picker.dart'; // <-- НОВЫЙ ИМПОРТ
+import 'dart:io'; // <-- НОВЫЙ ИМПОРТ (только для Desktop/Mobile)
 
 import '../models/account.dart';
 import '../models/transaction.dart';
@@ -47,54 +50,13 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     );
   }
 
-  // --- vvv ИЗМЕНЕННЫЙ МЕТОД vvv ---
+  // --- vvv ПОЛНОСТЬЮ ПЕРЕРАБОТАННЫЙ МЕТОД vvv ---
   Future<void> _exportToExcel() async {
     if (_transactions.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Нет данных для экспорта.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Нет данных для экспорта.')),
+      );
       return;
-    }
-
-    // 1. Предлагаем имя файла по умолчанию
-    final defaultFileName =
-        'transactions_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.xlsx';
-    final fileNameController = TextEditingController(text: defaultFileName);
-
-    // 2. Показываем диалог для ввода имени файла
-    final chosenFileName = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Экспорт в Excel'),
-        content: TextField(
-          controller: fileNameController,
-          decoration: const InputDecoration(labelText: 'Имя файла'),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            child: const Text('Отмена'),
-            onPressed: () => Navigator.of(ctx).pop(),
-          ),
-          ElevatedButton(
-            child: const Text('Сохранить'),
-            onPressed: () => Navigator.of(ctx).pop(fileNameController.text),
-          ),
-        ],
-      ),
-    );
-
-    fileNameController.dispose();
-
-    // 3. Если пользователь отменил диалог или ввел пустое имя, выходим
-    if (chosenFileName == null || chosenFileName.isEmpty) {
-      return;
-    }
-
-    // 4. Гарантируем, что у файла есть расширение .xlsx
-    String finalFileName = chosenFileName;
-    if (!finalFileName.toLowerCase().endsWith('.xlsx')) {
-      finalFileName += '.xlsx';
     }
 
     setState(() {
@@ -102,25 +64,18 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     });
 
     try {
+      // 1. Создаем Excel файл в памяти (общая логика)
       var excel = Excel.createExcel();
       Sheet sheetObject = excel['Транзакции'];
-
       List<String> headers = [
-        "Дата и время",
-        "Описание",
-        "Сумма",
-        "Валюта",
-        "Тип (Приход/Расход)",
-        "Статус",
+        "Дата и время", "Описание", "Сумма", "Валюта", "Тип (Приход/Расход)", "Статус",
       ];
       sheetObject.appendRow(headers.map((e) => TextCellValue(e)).toList());
 
       for (var tx in _transactions) {
         final isCredit = tx.creditDebitIndicator.toLowerCase() == 'credit';
         List<CellValue> row = [
-          TextCellValue(
-            DateFormat('dd.MM.yyyy HH:mm').format(tx.bookingDateTime.toLocal()),
-          ),
+          TextCellValue(DateFormat('dd.MM.yyyy HH:mm').format(tx.bookingDateTime.toLocal())),
           TextCellValue(tx.transactionInformation ?? ''),
           DoubleCellValue(double.tryParse(tx.amount) ?? 0.0),
           TextCellValue(tx.currency),
@@ -131,32 +86,54 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       }
 
       final fileBytes = excel.encode();
-      if (fileBytes != null) {
-        // 5. Используем выбранное пользователем имя файла
+      if (fileBytes == null) {
+        throw Exception("Не удалось сгенерировать файл Excel.");
+      }
+
+      // 2. Логика сохранения в зависимости от платформы
+      if (kIsWeb) {
+        // ДЛЯ WEB: используем старый метод с file_saver
         await FileSaver.instance.saveFile(
-          name: finalFileName,
+          name: 'transactions_${DateFormat('yyyy-MM-dd').format(DateTime.now())}.xlsx',
           bytes: Uint8List.fromList(fileBytes),
           mimeType: MimeType.microsoftExcel,
         );
+      } else {
+        // ДЛЯ DESKTOP/MOBILE: используем file_picker для выбора папки
+        final selectedDirectory = await FilePicker.platform.getDirectoryPath(
+          dialogTitle: 'Выберите папку для сохранения файла',
+        );
+
+        if (selectedDirectory == null) {
+          // Пользователь отменил выбор папки
+          return;
+        }
+
+        final fileName = 'transactions_${DateFormat('yyyy-MM-dd_HH-mm').format(DateTime.now())}.xlsx';
+        final filePath = '$selectedDirectory/$fileName';
+
+        // Сохраняем файл напрямую по выбранному пути
+        final file = File(filePath);
+        await file.writeAsBytes(fileBytes);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Файл успешно сохранен в: $filePath')),
+          );
+        }
       }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Ошибка экспорта: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('Ошибка экспорта: $e'), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) {
-        setState(() {
-          _isExporting = false;
-        });
+        setState(() => _isExporting = false);
       }
     }
   }
   // --- ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^ ---
-
 
   @override
   Widget build(BuildContext context) {
@@ -175,10 +152,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               const Text('Транзакции'),
               Text(
                 '${DateFormat('dd.MM.yy').format(fromDate)} - ${DateFormat('dd.MM.yy').format(toDate)}',
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.normal,
-                ),
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.normal),
               ),
             ],
           ),
@@ -188,8 +162,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 padding: EdgeInsets.only(right: 16.0),
                 child: Center(
                   child: SizedBox(
-                    width: 24,
-                    height: 24,
+                    width: 24, height: 24,
                     child: CircularProgressIndicator(color: Colors.white),
                   ),
                 ),
@@ -214,18 +187,14 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
           body = const Center(child: Text("Транзакций за период не найдено."));
         } else {
           _transactions = snapshot.data!;
-          _transactions.sort(
-            (a, b) => b.bookingDateTime.compareTo(a.bookingDateTime),
-          );
+          _transactions.sort((a, b) => b.bookingDateTime.compareTo(a.bookingDateTime));
 
           body = ListView.builder(
             itemCount: _transactions.length,
             itemBuilder: (ctx, i) {
               final tx = _transactions[i];
-              final isCredit =
-                  tx.creditDebitIndicator.toLowerCase() == 'credit';
+              final isCredit = tx.creditDebitIndicator.toLowerCase() == 'credit';
               final amount = num.tryParse(tx.amount) ?? 0.0;
-
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 child: ListTile(
@@ -238,11 +207,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  subtitle: Text(
-                    DateFormat(
-                      'dd.MM.yyyy HH:mm',
-                    ).format(tx.bookingDateTime.toLocal()),
-                  ),
+                  subtitle: Text(DateFormat('dd.MM.yyyy HH:mm').format(tx.bookingDateTime.toLocal())),
                   trailing: Text(
                     amount.toFormattedCurrency(tx.currency),
                     style: TextStyle(
