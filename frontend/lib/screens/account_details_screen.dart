@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../models/account.dart';
 import '../providers/account_details_provider.dart';
 import '../utils/formatting.dart';
+import '../models/account.dart' show Balance;
 
 class AccountDetailsScreen extends StatelessWidget {
   const AccountDetailsScreen({super.key});
@@ -71,13 +72,10 @@ class AccountDetailsScreen extends StatelessWidget {
               children: [
                 _buildInfoCard(context, account),
                 const SizedBox(height: 16),
-                // --- vvv ИЗМЕНЕНИЕ: Карточка оборотов теперь отображается всегда vvv ---
                 if (provider.isLoading)
                   const Center(child: CircularProgressIndicator())
                 else
-                  // Оборачиваем карточку в GestureDetector
                   GestureDetector(
-                    // Навигация на экран транзакций работает только если есть даты
                     onTap: hasDates
                         ? () {
                             Navigator.of(context).pushNamed(
@@ -92,7 +90,6 @@ class AccountDetailsScreen extends StatelessWidget {
                         : null,
                     child: _buildTurnoverCard(context, provider, account),
                   ),
-                // --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
               ],
             ),
           ),
@@ -101,7 +98,72 @@ class AccountDetailsScreen extends StatelessWidget {
     );
   }
 
-  // ... (все методы _build... остаются без изменений)
+  // --- vvv НОВЫЙ МЕТОД ДЛЯ ГЕНЕРАЦИИ СТРОК БАЛАНСА vvv ---
+  List<Widget> _buildBalanceRows(Account account) {
+    final List<Widget> widgets = [];
+    Balance? availableBalance;
+    Balance? bookedBalance;
+
+    // Безопасно ищем нужные типы балансов
+    try {
+      availableBalance = account.balances.firstWhere(
+        (b) => b.type == 'InterimAvailable',
+      );
+    } catch (e) {
+      /* InterimAvailable не найден, он останется null */
+    }
+
+    try {
+      bookedBalance = account.balances.firstWhere(
+        (b) => b.type == 'InterimBooked',
+      );
+    } catch (e) {
+      /* InterimBooked не найден, он останется null */
+    }
+
+    // Если нет даже доступного баланса, показываем сообщение
+    if (availableBalance == null) {
+      widgets.add(
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 4.0),
+          child: Text('Данные о доступном балансе отсутствуют.'),
+        ),
+      );
+      return widgets;
+    }
+
+    // Добавляем строку "Доступно"
+    widgets.add(
+      _buildInfoRow(
+        'Доступно:',
+        (num.tryParse(availableBalance.amount) ?? 0).toFormattedCurrency(
+          availableBalance.currency,
+        ),
+      ),
+    );
+
+    // Если есть и забронированный баланс, считаем разницу
+    if (bookedBalance != null) {
+      final availableAmount = num.tryParse(availableBalance.amount) ?? 0.0;
+      final bookedAmount = num.tryParse(bookedBalance.amount) ?? 0.0;
+      final difference = availableAmount - bookedAmount;
+
+      // Показываем разницу, только если она не равна нулю (с небольшой погрешностью)
+      if (difference.abs() > 0.01) {
+        widgets.add(
+          _buildInfoRow(
+            'Операции в обработке:',
+            difference.toFormattedCurrency(availableBalance.currency),
+            valueColor: Colors.grey[600],
+          ),
+        );
+      }
+    }
+
+    return widgets;
+  }
+  // --- ^^^ КОНЕЦ НОВОГО МЕТОДА ^^^ ---
+
   Widget _buildInfoCard(BuildContext context, Account _account) {
     return Card(
       child: Padding(
@@ -124,12 +186,9 @@ class AccountDetailsScreen extends StatelessWidget {
             const SizedBox(height: 16),
             Text('Балансы', style: Theme.of(context).textTheme.titleLarge),
             const Divider(),
-            ..._account.balances.map(
-              (b) => _buildInfoRow(
-                '${b.type}:',
-                (num.tryParse(b.amount) ?? 0).toFormattedCurrency(b.currency),
-              ),
-            ),
+            // --- vvv ИЗМЕНЕНИЕ: Используем новый метод для отображения балансов vvv ---
+            ..._buildBalanceRows(_account),
+            // --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
           ],
         ),
       ),
@@ -163,7 +222,6 @@ class AccountDetailsScreen extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // --- vvv ИЗМЕНЕНИЕ: Показываем либо даты, либо плейсхолдер vvv ---
                         if (account.statementDate != null &&
                             account.paymentDate != null)
                           Text(
@@ -176,7 +234,6 @@ class AccountDetailsScreen extends StatelessWidget {
                             style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(fontStyle: FontStyle.italic),
                           ),
-                        // --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
                         const SizedBox(width: 8),
                         const Icon(
                           Icons.calendar_today,
@@ -190,7 +247,6 @@ class AccountDetailsScreen extends StatelessWidget {
               ],
             ),
             const Divider(),
-            // --- vvv ИЗМЕНЕНИЕ: Показываем либо данные, либо плейсхолдеры vvv ---
             if (provider.turnoverData != null) ...[
               _buildInfoRow(
                 'Приход:',
@@ -210,7 +266,6 @@ class AccountDetailsScreen extends StatelessWidget {
               _buildInfoRow('Приход:', '—', valueColor: Colors.grey[600]),
               _buildInfoRow('Расход:', '—', valueColor: Colors.grey[600]),
             ],
-            // --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
           ],
         ),
       ),
