@@ -326,7 +326,9 @@ async def refresh_payment_status(
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found.")
 
-    updated_status_data = await get_payment_status(
+    # --- vvv ГЛАВНОЕ ИЗМЕНЕНИЕ ЗДЕСЬ vvv ---
+    # 1. Получаем "сырой" словарь от функции
+    bank_response_dict = await get_payment_status(
         user_id=user_id,
         bank_name=payment.bank_name,
         bank_client_id=payment.bank_client_id,
@@ -335,11 +337,20 @@ async def refresh_payment_status(
         current_user=current_user
     )
     
+    # 2. Вручную парсим словарь в Pydantic-модель
+    try:
+        updated_status_data = PaymentStatusResponse.model_validate(bank_response_dict)
+    except Exception as e:
+        # Если банк вернет что-то неожиданное, мы получим ошибку валидации
+        raise HTTPException(status_code=500, detail=f"Failed to parse bank status response: {e}")
+
+    # 3. Теперь безопасно обращаемся к атрибутам Pydantic-модели
     new_status = updated_status_data.data.status.lower()
     if payment.status != new_status:
         payment.status = new_status
         db.commit()
         db.refresh(payment)
+    # --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
         
     return payment
 
