@@ -1,7 +1,8 @@
 # finance-app-master/models.py
-from sqlalchemy import Column, Integer, String, Date, ForeignKey, Boolean, JSON
+from sqlalchemy import Column, Integer, String, Date, ForeignKey, Boolean, JSON, DateTime, Numeric
 from sqlalchemy.orm import relationship, column_property
-from sqlalchemy.dialects.postgresql import JSONB # <-- ИМПОРТИРУЙТЕ JSONB
+from sqlalchemy.dialects.postgresql import JSONB 
+from sqlalchemy.sql import func 
 from database import Base
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.sql import select
@@ -35,30 +36,26 @@ class ConnectedBank(Base):
     full_name = Column(String, nullable=True)
     
     user = relationship("User")
-    # Добавим обратную связь, чтобы легко получать счета подключения
     accounts = relationship("Account", back_populates="connection", cascade="all, delete-orphan")
 
-# v-- НОВАЯ МОДЕЛЬ ДЛЯ ХРАНЕНИЯ СЧЕТОВ --v
 class Account(Base):
     __tablename__ = "accounts"
     id = Column(Integer, primary_key=True, index=True)
     connection_id = Column(Integer, ForeignKey("connected_banks.id"), nullable=False)
     
-    # Поля из API банка
-    api_account_id = Column(String, index=True, nullable=False) # accountId
+    api_account_id = Column(String, index=True, nullable=False)
     status = Column(String)
     currency = Column(String(3))
-    account_type = Column(String) # accountType
-    account_subtype = Column(String) # accountSubType
+    account_type = Column(String) 
+    account_subtype = Column(String) 
     nickname = Column(String)
-    opening_date = Column(String, nullable=True) # openingDate
+    opening_date = Column(String, nullable=True)
     
-    statement_date = Column(Date, nullable=True) # Дата выписки
-    payment_date = Column(Date, nullable=True)   # Дата платежа
+    statement_date = Column(Date, nullable=True)
+    payment_date = Column(Date, nullable=True)
 
-    # Храним сложные структуры как JSON
-    owner_data = Column(JSONB, nullable=True) # Содержимое "account": [...]
-    balance_data = Column(JSONB, nullable=True) # Содержимое "balance": [...]
+    owner_data = Column(JSONB, nullable=True)
+    balance_data = Column(JSONB, nullable=True)
 
     connection = relationship("ConnectedBank", back_populates="accounts")
     
@@ -72,7 +69,6 @@ class Account(Base):
         .scalar_subquery()
     )
 
-# v-- НОВАЯ МОДЕЛЬ ДЛЯ СОГЛАСИЙ НА ПЛАТЕЖИ --v
 class PaymentConsent(Base):
     __tablename__ = "payment_consents"
     id = Column(Integer, primary_key=True, index=True)
@@ -86,7 +82,37 @@ class PaymentConsent(Base):
     
     status = Column(String, default="awaitingauthorization")
     
-    # Сохраняем детали платежа (кому, сколько и т.д.)
     details = Column(JSONB, nullable=True)
 
     user = relationship("User")
+    # --- vvv НЕДОСТАЮЩАЯ СТРОКА ДОБАВЛЕНА ЗДЕСЬ vvv ---
+    payments = relationship("Payment", back_populates="consent")
+    # --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+    id = Column(Integer, primary_key=True, index=True)
+    
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    debtor_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False)
+    
+    consent_id = Column(Integer, ForeignKey("payment_consents.id"), nullable=False)
+    
+    bank_payment_id = Column(String, index=True, nullable=False)
+    bank_name = Column(String, nullable=False)
+    bank_client_id = Column(String, nullable=False)
+    status = Column(String, default="pending")
+    
+    amount = Column(Numeric(10, 2), nullable=False)
+    currency = Column(String(3), nullable=False)
+    
+    creditor_details = Column(JSONB)
+    
+    idempotency_key = Column(String, unique=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User")
+    debtor_account = relationship("Account")
+    consent = relationship("PaymentConsent", back_populates="payments")

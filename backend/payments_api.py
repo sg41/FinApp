@@ -3,6 +3,7 @@ import httpx
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Path
 from sqlalchemy.orm import Session
+from typing import List
 
 import models
 from database import get_db
@@ -11,6 +12,8 @@ from schemas import (
     PaymentInitiate,
     InternalTransferInitiate,
     PaymentStatusResponse,
+    PaymentResponse,
+    PaymentListResponse,
 )
 from utils import get_bank_token, log_response
 
@@ -22,6 +25,7 @@ router = APIRouter(
 
 @router.post(
     "/",
+    response_model=PaymentStatusResponse,
     summary="Совершить платеж на внешний счет"
 )
 async def create_payment(
@@ -32,32 +36,42 @@ async def create_payment(
 ):
     """
     Инициирует разовый платеж на внешний счет, используя ранее полученное и
-    авторизованное согласие на платеж.
+    авторизованное согласие на платеж. После успеха сохраняет запись в историю.
     """
-    # ... (логика до формирования заголовков остается без изменений) ...
-    # 1-4 шаги
+    # 1. Найти счет списания и проверить, что он принадлежит пользователю
     debtor_account = db.query(models.Account).join(models.ConnectedBank).filter(
         models.Account.id == payment_data.debtor_account_id,
         models.ConnectedBank.user_id == user_id
     ).first()
     if not debtor_account:
         raise HTTPException(status_code=404, detail="Debtor account not found or access denied.")
+
+    # 2. Найти согласие на платеж и проверить его
     consent = db.query(models.PaymentConsent).filter(
         models.PaymentConsent.id == payment_data.payment_consent_id,
         models.PaymentConsent.user_id == user_id
     ).first()
     if not consent:
         raise HTTPException(status_code=404, detail="Payment consent not found.")
+    
     if consent.status != 'approved':
         raise HTTPException(status_code=400, detail=f"Consent is not approved. Current status: {consent.status}")
+        
     if not consent.consent_id:
         raise HTTPException(status_code=400, detail="API Consent ID is missing for this consent record.")
+    
+    # 3. Проверить, что счет и согласие относятся к одному и тому же банку
     if debtor_account.bank_name != consent.bank_name:
         raise HTTPException(status_code=400, detail="Account and consent must belong to the same bank.")
+
+    # 4. Получить конфигурацию банка и токен
     bank_config = db.query(models.Bank).filter(models.Bank.name == debtor_account.bank_name).first()
     if not bank_config:
         raise HTTPException(status_code=500, detail=f"Bank configuration for {debtor_account.bank_name} not found.")
+
     bank_access_token = await get_bank_token(bank_config.name, db)
+    
+    # 5. Сформировать тело запроса для API банка
     debtor_account_number = None
     if debtor_account.owner_data and isinstance(debtor_account.owner_data, list) and debtor_account.owner_data:
         debtor_account_number = debtor_account.owner_data[0].get("identification")
@@ -88,35 +102,61 @@ async def create_payment(
     
     # 6. Сформировать заголовки
     idempotency_key = str(uuid.uuid4())
-    # --- vvv ИЗМЕНЕНИЕ: Используем правильный заголовок для ID согласия на платеж vvv ---
     headers = {
         "Authorization": f"Bearer {bank_access_token}",
         "X-Requesting-Bank": bank_config.client_id,
-        "x-payment-consent-id": consent.consent_id, # <-- ИСПРАВЛЕНО
+        "x-payment-consent-id": consent.consent_id,
         "X-Idempotency-Key": idempotency_key,
         "X-Fapi-Interaction-Id": idempotency_key,
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
-    # --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
     
     params = {"client_id": debtor_account.connection.bank_client_id}
     
     # 7. Отправить запрос
     payment_url = f"{bank_config.base_url}/payments"
+    bank_response_json = {}
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(payment_url, headers=headers, params=params, json=api_body)
             log_response(response)
             response.raise_for_status()
-            return response.json()
+            bank_response_json = response.json()
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=e.response.status_code, detail=f"Bank API error: {e.response.text}")
         except httpx.RequestError as e:
             raise HTTPException(status_code=502, detail=f"Could not connect to bank API: {e}")
 
+    # 8. Сохранение платежа в БД
+    if bank_response_json:
+        bank_payment_data = bank_response_json.get("data", {})
+        new_payment = models.Payment(
+            user_id=user_id,
+            debtor_account_id=payment_data.debtor_account_id,
+            consent_id=payment_data.payment_consent_id,
+            bank_payment_id=bank_payment_data.get("paymentId"),
+            status=bank_payment_data.get("status", "pending").lower(),
+            amount=payment_data.amount,
+            currency=payment_data.currency,
+            creditor_details={
+                "name": payment_data.creditor_name,
+                "account": payment_data.creditor_account,
+                "bank_code": payment_data.creditor_bank_code,
+            },
+            idempotency_key=idempotency_key,
+            bank_name=debtor_account.bank_name,
+            bank_client_id=debtor_account.connection.bank_client_id,
+        )
+        db.add(new_payment)
+        db.commit()
+
+    return bank_response_json
+
+
 @router.post(
     "/internal-transfer",
+    response_model=PaymentStatusResponse,
     summary="Совершить перевод между своими счетами"
 )
 async def create_internal_transfer(
@@ -127,10 +167,9 @@ async def create_internal_transfer(
 ):
     """
     Инициирует перевод между двумя счетами одного и того же пользователя.
-    Может использоваться для переводов между счетами в разных банках.
+    После успеха сохраняет запись в историю.
     """
-    # ... (логика до формирования заголовков остается без изменений) ...
-    # 1-4 шаги
+    # 1. Найти счета
     debtor_account = db.query(models.Account).join(models.ConnectedBank).filter(
         models.Account.id == transfer_data.debtor_account_id,
         models.ConnectedBank.user_id == user_id
@@ -139,8 +178,11 @@ async def create_internal_transfer(
         models.Account.id == transfer_data.creditor_account_id,
         models.ConnectedBank.user_id == user_id
     ).first()
+
     if not debtor_account or not creditor_account:
         raise HTTPException(status_code=404, detail="One or both accounts not found or access denied.")
+    
+    # 2. Найти согласие
     consent = db.query(models.PaymentConsent).filter(
         models.PaymentConsent.id == transfer_data.payment_consent_id,
         models.PaymentConsent.user_id == user_id,
@@ -152,10 +194,15 @@ async def create_internal_transfer(
         raise HTTPException(status_code=400, detail=f"Consent is not approved. Current status: {consent.status}")
     if not consent.consent_id:
         raise HTTPException(status_code=400, detail="API Consent ID is missing for this consent record.")
+
+    # 3. Получить конфигурацию банка-отправителя
     bank_config = db.query(models.Bank).filter(models.Bank.name == debtor_account.bank_name).first()
     if not bank_config:
         raise HTTPException(status_code=500, detail=f"Bank configuration for {debtor_account.bank_name} not found.")
+
     bank_access_token = await get_bank_token(bank_config.name, db)
+    
+    # 4. Собрать данные для API
     debtor_account_number = None
     if debtor_account.owner_data and isinstance(debtor_account.owner_data, list) and debtor_account.owner_data:
         debtor_account_number = debtor_account.owner_data[0].get("identification")
@@ -174,10 +221,7 @@ async def create_internal_transfer(
                     "amount": str(transfer_data.amount),
                     "currency": transfer_data.currency,
                 },
-                "debtorAccount": {
-                    "schemeName": "RU.CBR.PAN",
-                    "identification": debtor_account_number,
-                },
+                "debtorAccount": { "schemeName": "RU.CBR.PAN", "identification": debtor_account_number },
                 "creditorAccount": {
                     "schemeName": "RU.CBR.PAN",
                     "identification": creditor_account_number,
@@ -191,37 +235,119 @@ async def create_internal_transfer(
 
     # 5. Сформировать заголовки
     idempotency_key = str(uuid.uuid4())
-    # --- vvv ИЗМЕНЕНИЕ: Используем правильный заголовок для ID согласия на платеж vvv ---
     headers = {
         "Authorization": f"Bearer {bank_access_token}",
         "X-Requesting-Bank": bank_config.client_id,
-        "x-payment-consent-id": consent.consent_id, # <-- ИСПРАВЛЕНО
+        "x-payment-consent-id": consent.consent_id,
         "X-Idempotency-Key": idempotency_key,
         "X-Fapi-Interaction-Id": idempotency_key,
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
-    # --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
     
     params = {"client_id": debtor_account.connection.bank_client_id}
 
     # 6. Отправить запрос
     payment_url = f"{bank_config.base_url}/payments"
+    bank_response_json = {}
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(payment_url, headers=headers, params=params, json=api_body)
             log_response(response)
             response.raise_for_status()
-            return response.json()
+            bank_response_json = response.json()
         except httpx.HTTPStatusError as e:
             raise HTTPException(status_code=e.response.status_code, detail=f"Bank API error: {e.response.text}")
         except httpx.RequestError as e:
             raise HTTPException(status_code=502, detail=f"Could not connect to bank API: {e}")
+            
+    # 7. Сохранить платеж в БД
+    if bank_response_json:
+        bank_payment_data = bank_response_json.get("data", {})
+        new_payment = models.Payment(
+            user_id=user_id,
+            debtor_account_id=transfer_data.debtor_account_id,
+            consent_id=transfer_data.payment_consent_id,
+            bank_payment_id=bank_payment_data.get("paymentId"),
+            status=bank_payment_data.get("status", "pending").lower(),
+            amount=transfer_data.amount,
+            currency=transfer_data.currency,
+            creditor_details={
+                "internal_account_id": transfer_data.creditor_account_id,
+                "name": creditor_name,
+                "account": creditor_account_number,
+                "bank_code": creditor_account.bank_name,
+            },
+            idempotency_key=idempotency_key,
+            bank_name=debtor_account.bank_name,
+            bank_client_id=debtor_account.connection.bank_client_id,
+        )
+        db.add(new_payment)
+        db.commit()
+
+    return bank_response_json
+
+
+@router.get(
+    "/history",
+    response_model=PaymentListResponse,
+    summary="Получить историю совершенных платежей"
+)
+def get_payment_history(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(user_is_admin_or_self)
+):
+    """
+    Возвращает список всех платежей, инициированных пользователем через API.
+    """
+    payments = db.query(models.Payment).filter(models.Payment.user_id == user_id).order_by(models.Payment.created_at.desc()).all()
+    return {"count": len(payments), "payments": payments}
+
+
+@router.post(
+    "/{payment_db_id}/refresh-status",
+    response_model=PaymentResponse,
+    summary="Обновить статус сохраненного платежа"
+)
+async def refresh_payment_status(
+    user_id: int,
+    payment_db_id: int = Path(..., description="ID платежа в НАШЕЙ базе данных"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(user_is_admin_or_self)
+):
+    """
+    Запрашивает у банка актуальный статус платежа и обновляет его в нашей БД.
+    """
+    payment = db.query(models.Payment).filter(
+        models.Payment.id == payment_db_id,
+        models.Payment.user_id == user_id
+    ).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found.")
+
+    updated_status_data = await get_payment_status(
+        user_id=user_id,
+        bank_name=payment.bank_name,
+        bank_client_id=payment.bank_client_id,
+        payment_id=payment.bank_payment_id,
+        db=db,
+        current_user=current_user
+    )
+    
+    new_status = updated_status_data.data.status.lower()
+    if payment.status != new_status:
+        payment.status = new_status
+        db.commit()
+        db.refresh(payment)
+        
+    return payment
+
 
 @router.get(
     "/{bank_name}/{bank_client_id}/{payment_id}",
     response_model=PaymentStatusResponse,
-    summary="Получить статус платежа"
+    summary="Получить статус платежа (служебный)"
 )
 async def get_payment_status(
     user_id: int,
@@ -234,7 +360,6 @@ async def get_payment_status(
     """
     Получает актуальный статус ранее созданного платежа из API банка.
     """
-    # 1. Проверить, что у пользователя есть активное подключение для этого банка и клиента
     connection = db.query(models.ConnectedBank).filter(
         models.ConnectedBank.user_id == user_id,
         models.ConnectedBank.bank_name == bank_name,
@@ -244,14 +369,12 @@ async def get_payment_status(
     if not connection:
         raise HTTPException(status_code=403, detail="Active connection for this bank and client ID not found.")
 
-    # 2. Получить конфигурацию банка и токен
     bank_config = db.query(models.Bank).filter(models.Bank.name == bank_name).first()
     if not bank_config:
         raise HTTPException(status_code=500, detail=f"Bank configuration for {bank_name} not found.")
     
     bank_access_token = await get_bank_token(bank_config.name, db)
 
-    # 3. Сформировать запрос к API банка
     status_url = f"{bank_config.base_url}/payments/{payment_id}"
     headers = {
         "Authorization": f"Bearer {bank_access_token}",
@@ -259,7 +382,6 @@ async def get_payment_status(
     }
     params = { "client_id": bank_client_id }
 
-    # 4. Отправить запрос
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(status_url, headers=headers, params=params)

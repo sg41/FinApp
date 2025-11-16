@@ -204,19 +204,39 @@ class InternalTransferInitiate(BaseModel):
     reference: Optional[str] = "Перевод между своими счетами"
     
 # Схемы для получения статуса платежа
-class PaymentStatusAmount(BaseModel):
-    amount: str
-    currency: str
-
 class PaymentStatusData(BaseModel):
     paymentId: str
     status: str
     creationDateTime: datetime
     statusUpdateDateTime: datetime
-    instructedAmount: PaymentStatusAmount
+    # Заменяем вложенный объект на два плоских поля
+    amount: str
+    currency: str
     description: Optional[str] = None
 
 class PaymentStatusResponse(BaseModel):
     data: PaymentStatusData
 
+# --- ^^^ КОНЕЦ НОВЫХ СХЕМ ^^^ ---
+
+# --- vvv НОВЫЕ СХЕМЫ ДЛЯ ИСТОРИИ ПЛАТЕЖЕЙ vvv ---
+class PaymentResponse(BaseModel):
+    id: int
+    user_id: int
+    debtor_account_id: int
+    consent_id: int
+    bank_payment_id: str
+    status: str
+    amount: Decimal
+    currency: str
+    creditor_details: Any
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class PaymentListResponse(BaseModel):
+    count: int
+    payments: List[PaymentResponse]
 # --- ^^^ КОНЕЦ НОВЫХ СХЕМ ^^^ ---
