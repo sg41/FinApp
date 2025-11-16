@@ -10,34 +10,35 @@ import '../utils/formatting.dart';
 class AccountDetailsScreen extends StatelessWidget {
   const AccountDetailsScreen({super.key});
 
-  Future<void> _selectDate(BuildContext context, bool isStatementDate) async {
+  Future<void> _selectDateRange(BuildContext context) async {
     final provider = Provider.of<AccountDetailsProvider>(
       context,
       listen: false,
     );
-    if (provider.account == null) return;
+    final account = provider.account;
+    if (account == null) return;
 
-    final initialDate =
-        (isStatementDate
-            ? provider.account!.statementDate
-            : provider.account!.paymentDate) ??
-        DateTime.now();
+    // Устанавливаем начальный диапазон на основе текущих дат в счете
+    final initialRange = DateTimeRange(
+      start:
+          account.statementDate ??
+          DateTime.now().subtract(const Duration(days: 30)),
+      end: account.paymentDate ?? DateTime.now(),
+    );
 
-    final newDate = await showDatePicker(
+    final newRange = await showDateRangePicker(
       context: context,
-      initialDate: initialDate,
+      initialDateRange: initialRange,
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
     );
 
-    if (newDate == null) return;
+    if (newRange == null) return; // Пользователь нажал "Отмена"
 
-    // Вызываем единый метод в провайдере
+    // Вызываем метод обновления с обеими новыми датами
     provider.updateAndRefresh(
-      statementDate: isStatementDate
-          ? newDate
-          : provider.account!.statementDate,
-      paymentDate: isStatementDate ? provider.account!.paymentDate : newDate,
+      statementDate: newRange.start,
+      paymentDate: newRange.end,
     );
   }
 
@@ -54,6 +55,8 @@ class AccountDetailsScreen extends StatelessWidget {
         }
 
         final account = provider.account!;
+        final hasDates =
+            account.statementDate != null && account.paymentDate != null;
 
         return PopScope(
           canPop: false,
@@ -68,24 +71,28 @@ class AccountDetailsScreen extends StatelessWidget {
               children: [
                 _buildInfoCard(context, account),
                 const SizedBox(height: 16),
-                _buildDatesCard(context, account),
-                const SizedBox(height: 16),
+                // --- vvv ИЗМЕНЕНИЕ: Карточка оборотов теперь отображается всегда vvv ---
                 if (provider.isLoading)
                   const Center(child: CircularProgressIndicator())
-                else if (provider.turnoverData != null)
+                else
+                  // Оборачиваем карточку в GestureDetector
                   GestureDetector(
-                    onTap: () {
-                      Navigator.of(context).pushNamed(
-                        '/transactions',
-                        arguments: {
-                          'account': account,
-                          'fromDate': account.statementDate!,
-                          'toDate': account.paymentDate!,
-                        },
-                      );
-                    },
-                    child: _buildTurnoverCard(context, provider),
+                    // Навигация на экран транзакций работает только если есть даты
+                    onTap: hasDates
+                        ? () {
+                            Navigator.of(context).pushNamed(
+                              '/transactions',
+                              arguments: {
+                                'account': account,
+                                'fromDate': account.statementDate!,
+                                'toDate': account.paymentDate!,
+                              },
+                            );
+                          }
+                        : null,
+                    child: _buildTurnoverCard(context, provider, account),
                   ),
+                // --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
               ],
             ),
           ),
@@ -129,47 +136,10 @@ class AccountDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildDatesCard(BuildContext context, Account account) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Отчетный период',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const Divider(),
-            ListTile(
-              title: const Text('Дата выписки'),
-              subtitle: Text(
-                account.statementDate != null
-                    ? DateFormat('dd.MM.yyyy').format(account.statementDate!)
-                    : 'Не указана',
-              ),
-              trailing: const Icon(Icons.calendar_today),
-              onTap: () => _selectDate(context, true),
-            ),
-            ListTile(
-              title: const Text('Дата платежа'),
-              subtitle: Text(
-                account.paymentDate != null
-                    ? DateFormat('dd.MM.yyyy').format(account.paymentDate!)
-                    : 'Не указана',
-              ),
-              trailing: const Icon(Icons.calendar_today),
-              onTap: () => _selectDate(context, false),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildTurnoverCard(
     BuildContext context,
     AccountDetailsProvider provider,
+    Account account, // Принимаем аккаунт для отображения дат
   ) {
     return Card(
       color: Colors.blue[50],
@@ -178,25 +148,69 @@ class AccountDetailsScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Обороты за период',
-              style: Theme.of(context).textTheme.titleLarge,
+            Row(
+              children: [
+                Text(
+                  'Обороты за период',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const Spacer(),
+                InkWell(
+                  onTap: () => _selectDateRange(context),
+                  borderRadius: BorderRadius.circular(8), // для красоты
+                  child: Padding(
+                    padding: const EdgeInsets.all(4.0),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // --- vvv ИЗМЕНЕНИЕ: Показываем либо даты, либо плейсхолдер vvv ---
+                        if (account.statementDate != null &&
+                            account.paymentDate != null)
+                          Text(
+                            '${DateFormat('dd.MM.yy').format(account.statementDate!)} - ${DateFormat('dd.MM.yy').format(account.paymentDate!)}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          )
+                        else
+                          Text(
+                            'Выберите период',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(fontStyle: FontStyle.italic),
+                          ),
+                        // --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.calendar_today,
+                          size: 20,
+                          color: Colors.black54,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
             const Divider(),
-            _buildInfoRow(
-              'Приход:',
-              provider.turnoverData!.totalCredit.toFormattedCurrency(
-                provider.turnoverData!.currency,
+            // --- vvv ИЗМЕНЕНИЕ: Показываем либо данные, либо плейсхолдеры vvv ---
+            if (provider.turnoverData != null) ...[
+              _buildInfoRow(
+                'Приход:',
+                provider.turnoverData!.totalCredit.toFormattedCurrency(
+                  provider.turnoverData!.currency,
+                ),
+                valueColor: Colors.green[700],
               ),
-              valueColor: Colors.green[700],
-            ),
-            _buildInfoRow(
-              'Расход:',
-              provider.turnoverData!.totalDebit.toFormattedCurrency(
-                provider.turnoverData!.currency,
+              _buildInfoRow(
+                'Расход:',
+                provider.turnoverData!.totalDebit.toFormattedCurrency(
+                  provider.turnoverData!.currency,
+                ),
+                valueColor: Colors.red[700],
               ),
-              valueColor: Colors.red[700],
-            ),
+            ] else ...[
+              _buildInfoRow('Приход:', '—', valueColor: Colors.grey[600]),
+              _buildInfoRow('Расход:', '—', valueColor: Colors.grey[600]),
+            ],
+            // --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
           ],
         ),
       ),
