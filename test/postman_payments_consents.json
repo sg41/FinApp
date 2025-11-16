@@ -1,0 +1,306 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+		"name": "FinApp - Payment Consents API",
+		"description": "Коллекция для тестирования API по созданию и управлению согласиями на платежи.\n\n**Предварительные условия:**\n1. Бэкенд-сервер должен быть запущен.\n2. В базе данных должен существовать тестовый пользователь, созданный скриптом `create_test_user.py` (email: `testuser@example.com`, password: `password`).\n\n**Рабочий процесс:**\n1. Запустите запрос `1. Login and Get Token` для получения токена авторизации.\n2. Последовательно выполняйте остальные запросы. Переменные (ID пользователя, ID согласия) передаются автоматически.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Login and Get Token",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"",
+							"pm.test(\"Token and User ID received\", function () {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData.access_token).to.be.a('string');",
+							"    pm.expect(jsonData.user_id).to.be.a('number');",
+							"    ",
+							"    // Сохраняем токен и ID пользователя в переменные коллекции",
+							"    pm.collectionVariables.set(\"authToken\", jsonData.access_token);",
+							"    pm.collectionVariables.set(\"userId\", jsonData.user_id);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "urlencoded",
+					"urlencoded": [
+						{
+							"key": "username",
+							"value": "testuser@example.com",
+							"type": "text"
+						},
+						{
+							"key": "password",
+							"value": "password",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{baseUrl}}/auth/login",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"auth",
+						"login"
+					]
+				},
+				"description": "Получает токен авторизации для тестового пользователя и сохраняет его для последующих запросов."
+			},
+			"response": []
+		},
+		{
+			"name": "Payment Consents Lifecycle",
+			"item": [
+				{
+					"name": "2. Create Payment Consent (Single Use)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Consent created and IDs saved\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.id).to.be.a('number');",
+									"    // ИЗМЕНЕНИЕ: Проверяем, что статус 'approved', так как банк одобряет его сразу",
+									"    pm.expect(jsonData.status).to.eql('approved');",
+									"    ",
+									"    // Сохраняем ID созданного согласия для следующих шагов",
+									"    pm.collectionVariables.set(\"consentDbId\", jsonData.id);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"bank_name\": \"sbank\",\n  \"client_id\": \"team076-1\",\n  \"consent_type\": \"single_use\",\n  \"currency\": \"RUB\",\n  \"debtor_account\": \"4081781007601086011\",\n  \"creditor_name\": \"Иванов Иван\",\n  \"creditor_account\": \"408dc21e3b59cfb47c\",\n  \"amount\": 150.50,\n  \"reference\": \"Оплата услуг по договору 123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/users/{{userId}}/payment-consents/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"users",
+								"{{userId}}",
+								"payment-consents",
+								""
+							]
+						},
+						"description": "Создает новое одноразовое согласие на платеж. ID сохраняется в переменную `consentDbId`."
+					},
+					"response": []
+				},
+				{
+					"name": "3. Check Consent Status",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Consent status is 'approved' (due to auto-approval in sandbox)\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.status).to.eql('approved');",
+									"    pm.expect(jsonData.consent_id).to.not.be.null;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/users/{{userId}}/payment-consents/{{consentDbId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"users",
+								"{{userId}}",
+								"payment-consents",
+								"{{consentDbId}}"
+							]
+						},
+						"description": "Проверяет статус ранее созданного согласия. В песочнице банк обычно одобряет его автоматически."
+					},
+					"response": []
+				},
+				{
+					"name": "4. List All Payment Consents",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response contains a list of consents\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.consents).to.be.an('array').and.not.be.empty;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/users/{{userId}}/payment-consents/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"users",
+								"{{userId}}",
+								"payment-consents",
+								""
+							]
+						},
+						"description": "Получает список всех согласий на платежи для текущего пользователя."
+					},
+					"response": []
+				},
+				{
+					"name": "5. Delete Payment Consent (Cleanup)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response confirms deletion\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData.status).to.eql('deleted');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/users/{{userId}}/payment-consents/{{consentDbId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"users",
+								"{{userId}}",
+								"payment-consents",
+								"{{consentDbId}}"
+							]
+						},
+						"description": "Удаляет согласие, созданное на шаге 2, для очистки тестовой среды."
+					},
+					"response": []
+				}
+			],
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{
+						"key": "token",
+						"value": "{{authToken}}",
+						"type": "string"
+					}
+				]
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							""
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							""
+						]
+					}
+				}
+			],
+			"description": "Запросы, требующие авторизации пользователя."
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8001",
+			"type": "string",
+			"description": "Базовый URL вашего API"
+		},
+		{
+			"key": "authToken",
+			"value": "",
+			"type": "string",
+			"description": "Автоматически заполняется после выполнения запроса 'Login'"
+		},
+		{
+			"key": "userId",
+			"value": "",
+			"type": "string",
+			"description": "Автоматически заполняется после выполнения запроса 'Login'"
+		},
+		{
+			"key": "consentDbId",
+			"value": "",
+			"type": "string",
+			"description": "ID согласия в нашей БД. Автоматически заполняется после создания согласия."
+		}
+	]
+}

@@ -1,0 +1,404 @@
+{
+	"info": {
+		"_postman_id": "9a8b7c6d-5e4f-4321-b0a9-8765fedcba43",
+		"name": "FinApp - Payments API (Automated)",
+		"description": "Полностью автоматизированная коллекция для тестирования API платежей.\n\n**Предварительные условия:**\n1. Бэкенд-сервер должен быть запущен.\n2. У тестового пользователя `testuser@example.com` должно быть подключено **как минимум два банковских счета**.\n\n**Рабочий процесс:**\nКоллекция автоматически получает токен, находит ID счетов для перевода и выполняет все тесты. Ручная настройка не требуется.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Login and Get Token",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+							"pm.test(\"Token and User ID received\", () => {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData.access_token).to.be.a('string');",
+							"    pm.expect(jsonData.user_id).to.be.a('number');",
+							"    pm.collectionVariables.set(\"authToken\", jsonData.access_token);",
+							"    pm.collectionVariables.set(\"userId\", jsonData.user_id);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "urlencoded",
+					"urlencoded": [
+						{
+							"key": "username",
+							"value": "testuser@example.com",
+							"type": "text"
+						},
+						{
+							"key": "password",
+							"value": "password",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{baseUrl}}/auth/login",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"auth",
+						"login"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "2. Get Accounts & Set Variables",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+							"",
+							"pm.test(\"At least two accounts found and variables are set\", () => {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData.accounts).to.be.an('array').with.length.gte(2, \"ERROR: Not enough accounts found for user. Please connect at least two accounts to run this test.\");",
+							"",
+							"    const debtorAccount = jsonData.accounts[0];",
+							"    const creditorAccount = jsonData.accounts[1];",
+							"",
+							"    pm.collectionVariables.set(\"debtorAccountId\", debtorAccount.id);",
+							"    pm.collectionVariables.set(\"debtorBankName\", debtorAccount.bank_name);",
+							"    pm.collectionVariables.set(\"debtorBankClientId\", debtorAccount.bank_client_id);",
+							"",
+							"    pm.collectionVariables.set(\"creditorAccountId\", creditorAccount.id);",
+							"",
+							"    console.log(`SUCCESS: Set Debtor Account: ID=${debtorAccount.id}, Bank=${debtorAccount.bank_name}`);",
+							"    console.log(`SUCCESS: Set Creditor Account: ID=${creditorAccount.id}`);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/users/{{userId}}/accounts/",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"users",
+						"{{userId}}",
+						"accounts",
+						""
+					]
+				},
+				"description": "Получает все счета пользователя и автоматически настраивает переменные для тестов платежей."
+			},
+			"response": []
+		},
+		{
+			"name": "3. (Setup) Create Multi-Use Consent",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+							"pm.test(\"Consent created and approved\", () => {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData.id).to.be.a('number');",
+							"    pm.expect(jsonData.status).to.eql('approved');",
+							"    pm.collectionVariables.set(\"consentDbId\", jsonData.id);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"bank_name\": \"{{debtorBankName}}\",\n  \"client_id\": \"{{debtorBankClientId}}\",\n  \"consent_type\": \"multi_use\",\n  \"debtor_account\": \"4081781007601086011\",\n  \"max_uses\": 10,\n  \"max_total_amount\": 100000\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/users/{{userId}}/payment-consents/",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"users",
+						"{{userId}}",
+						"payment-consents",
+						""
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "4. (TEST) Internal Transfer",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+							"pm.test(\"Payment initiated successfully\", () => {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.paymentId).to.be.a('string');",
+							"    pm.expect(jsonData.data.status.toLowerCase()).to.be.oneOf(['pending', 'acceptedsettlementcompleted']);",
+							"    pm.collectionVariables.set(\"bankPaymentId\", jsonData.data.paymentId);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"payment_consent_id\": {{consentDbId}},\n  \"debtor_account_id\": {{debtorAccountId}},\n  \"creditor_account_id\": {{creditorAccountId}},\n  \"amount\": 150.75,\n  \"currency\": \"RUB\",\n  \"reference\": \"Test Transfer from Postman\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/users/{{userId}}/payments/internal-transfer",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"users",
+						"{{userId}}",
+						"payments",
+						"internal-transfer"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "5. (TEST) Get Payment History (and find DB ID)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+							"pm.test(\"Find created payment in history and save its DB ID\", () => {",
+							"    const jsonData = pm.response.json();",
+							"    const bankPaymentId = pm.collectionVariables.get(\"bankPaymentId\");",
+							"    ",
+							"    pm.expect(jsonData.payments).to.be.an('array').and.not.be.empty;",
+							"    ",
+							"    const createdPayment = jsonData.payments.find(p => p.bank_payment_id === bankPaymentId);",
+							"    pm.expect(createdPayment, \"Payment created in previous step was not found in history\").to.exist;",
+							"    ",
+							"    pm.collectionVariables.set(\"paymentDbId\", createdPayment.id);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/users/{{userId}}/payments/history",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"users",
+						"{{userId}}",
+						"payments",
+						"history"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "6. (TEST) Refresh Status via DB ID",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+							"pm.test(\"Payment status is completed\", () => {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData.status).to.eql('acceptedsettlementcompleted');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/users/{{userId}}/payments/{{paymentDbId}}/refresh-status",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"users",
+						"{{userId}}",
+						"payments",
+						"{{paymentDbId}}",
+						"refresh-status"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "7. (TEST) Check Status via Bank ID",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));",
+							"pm.test(\"Payment status is completed\", () => {",
+							"    const jsonData = pm.response.json();",
+							"    pm.expect(jsonData.data.status).to.eql('AcceptedSettlementCompleted');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/users/{{userId}}/payments/{{debtorBankName}}/{{debtorBankClientId}}/{{bankPaymentId}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"users",
+						"{{userId}}",
+						"payments",
+						"{{debtorBankName}}",
+						"{{debtorBankClientId}}",
+						"{{bankPaymentId}}"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "8. (Cleanup) Delete Payment Consent",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", () => pm.response.to.have.status(200));"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/users/{{userId}}/payment-consents/{{consentDbId}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"users",
+						"{{userId}}",
+						"payment-consents",
+						"{{consentDbId}}"
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{authToken}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8001"
+		},
+		{
+			"key": "authToken",
+			"value": ""
+		},
+		{
+			"key": "userId",
+			"value": ""
+		},
+		{
+			"key": "consentDbId",
+			"value": ""
+		},
+		{
+			"key": "debtorAccountId",
+			"value": "",
+			"description": "Авто-заполняемая переменная"
+		},
+		{
+			"key": "creditorAccountId",
+			"value": "",
+			"description": "Авто-заполняемая переменная"
+		},
+		{
+			"key": "debtorBankName",
+			"value": "",
+			"description": "Авто-заполняемая переменная"
+		},
+		{
+			"key": "debtorBankClientId",
+			"value": "",
+			"description": "Авто-заполняемая переменная"
+		},
+		{
+			"key": "bankPaymentId",
+			"value": ""
+		},
+		{
+			"key": "paymentDbId",
+			"value": ""
+		}
+	]
+}

@@ -86,7 +86,7 @@ class PaymentConsent(Base):
 
     user = relationship("User")
     # --- vvv НЕДОСТАЮЩАЯ СТРОКА ДОБАВЛЕНА ЗДЕСЬ vvv ---
-    payments = relationship("Payment", back_populates="consent")
+    payments = relationship("Payment", back_populates="consent", cascade="all, delete-orphan")
     # --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
 
 
