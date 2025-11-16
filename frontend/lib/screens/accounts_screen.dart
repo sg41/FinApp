@@ -112,6 +112,9 @@ class _AccountsScreenState extends State<AccountsScreen> {
                   fontSize: 14,
                   fontWeight: FontWeight.normal,
                 ),
+                // Добавляем защиту от переполнения и для общей суммы
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
             ],
           );
@@ -123,7 +126,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
               return Card(
                 margin: const EdgeInsets.all(8.0),
                 child: ExpansionTile(
-                  // VVV ИЗМЕНЕНИЕ ЗДЕСЬ VVV
                   onExpansionChanged: (isExpanded) {
                     if (isExpanded) {
                       // При раскрытии списка предзагружаем данные для каждого счета
@@ -132,17 +134,21 @@ class _AccountsScreenState extends State<AccountsScreen> {
                       }
                     }
                   },
-                  // ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
+                  // --- vvv ГЛАВНОЕ ИЗМЕНЕНИЕ ДЛЯ ИСПРАВЛЕНИЯ OVERFLOW vvv ---
                   title: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        bank.name.toUpperCase(),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
+                      Expanded(
+                        child: Text(
+                          bank.name.toUpperCase(),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
                         ),
                       ),
+                      const SizedBox(width: 8),
                       Text(
                         bank.totalBalance.toFormattedCurrency('RUB'),
                         style: const TextStyle(
@@ -152,6 +158,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
                       ),
                     ],
                   ),
+                  // --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
                   children: bank.accounts.map((account) {
                     final balance = account.balances.isNotEmpty
                         ? account.balances.first
@@ -160,7 +167,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
                     return InkWell(
                       mouseCursor: SystemMouseCursors.click,
                       onTap: () async {
-                        // VVV ИЗМЕНЕНИЕ ЗДЕСЬ VVV
                         // 1. Просто устанавливаем текущий аккаунт.
                         // Данные уже могут быть предзагружены.
                         accountDetailsProvider.setCurrentAccount(account);
@@ -169,7 +175,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
                         final changed = await Navigator.of(
                           context,
                         ).pushNamed('/account-details');
-                        // ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
                         if (changed == true) {
                           _triggerFullRefresh();
                         }

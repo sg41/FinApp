@@ -98,13 +98,11 @@ class AccountDetailsScreen extends StatelessWidget {
     );
   }
 
-  // --- vvv НОВЫЙ МЕТОД ДЛЯ ГЕНЕРАЦИИ СТРОК БАЛАНСА vvv ---
   List<Widget> _buildBalanceRows(Account account) {
     final List<Widget> widgets = [];
     Balance? availableBalance;
     Balance? bookedBalance;
 
-    // Безопасно ищем нужные типы балансов
     try {
       availableBalance = account.balances.firstWhere(
         (b) => b.type == 'InterimAvailable',
@@ -121,7 +119,6 @@ class AccountDetailsScreen extends StatelessWidget {
       /* InterimBooked не найден, он останется null */
     }
 
-    // Если нет даже доступного баланса, показываем сообщение
     if (availableBalance == null) {
       widgets.add(
         const Padding(
@@ -132,7 +129,6 @@ class AccountDetailsScreen extends StatelessWidget {
       return widgets;
     }
 
-    // Добавляем строку "Доступно"
     widgets.add(
       _buildInfoRow(
         'Доступно:',
@@ -142,13 +138,11 @@ class AccountDetailsScreen extends StatelessWidget {
       ),
     );
 
-    // Если есть и забронированный баланс, считаем разницу
     if (bookedBalance != null) {
       final availableAmount = num.tryParse(availableBalance.amount) ?? 0.0;
       final bookedAmount = num.tryParse(bookedBalance.amount) ?? 0.0;
       final difference = availableAmount - bookedAmount;
 
-      // Показываем разницу, только если она не равна нулю (с небольшой погрешностью)
       if (difference.abs() > 0.01) {
         widgets.add(
           _buildInfoRow(
@@ -162,7 +156,6 @@ class AccountDetailsScreen extends StatelessWidget {
 
     return widgets;
   }
-  // --- ^^^ КОНЕЦ НОВОГО МЕТОДА ^^^ ---
 
   Widget _buildInfoCard(BuildContext context, Account _account) {
     return Card(
@@ -186,9 +179,7 @@ class AccountDetailsScreen extends StatelessWidget {
             const SizedBox(height: 16),
             Text('Балансы', style: Theme.of(context).textTheme.titleLarge),
             const Divider(),
-            // --- vvv ИЗМЕНЕНИЕ: Используем новый метод для отображения балансов vvv ---
             ..._buildBalanceRows(_account),
-            // --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
           ],
         ),
       ),
@@ -207,13 +198,20 @@ class AccountDetailsScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // --- vvv ИЗМЕНЕНИЕ ЗДЕСЬ vvv ---
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Text(
-                  'Обороты за период',
-                  style: Theme.of(context).textTheme.titleLarge,
+                Expanded(
+                  // 1. Оборачиваем заголовок в Expanded
+                  child: Text(
+                    'Обороты за период',
+                    style: Theme.of(context).textTheme.titleLarge,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8), // 2. Заменяем Spacer на отступ
                 InkWell(
                   onTap: () => _selectDateRange(context),
                   borderRadius: BorderRadius.circular(8), // для красоты
@@ -246,6 +244,7 @@ class AccountDetailsScreen extends StatelessWidget {
                 ),
               ],
             ),
+            // --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
             const Divider(),
             if (provider.turnoverData != null) ...[
               _buildInfoRow(
@@ -276,15 +275,18 @@ class AccountDetailsScreen extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(
-            value,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: valueColor,
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: valueColor,
+              ),
             ),
           ),
         ],
