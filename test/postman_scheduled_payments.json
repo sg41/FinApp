@@ -1,0 +1,335 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+		"name": "FinApp - Scheduled Payments API",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Auth - Login",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"pm.environment.set(\"created_payment_ids\", JSON.stringify([]));"
+						],
+						"type": "text/javascript"
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"var jsonData = pm.response.json();",
+							"pm.environment.set(\"jwt_token\", jsonData.access_token);",
+							"pm.environment.set(\"user_id\", jsonData.user_id);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "urlencoded",
+					"urlencoded": [
+						{
+							"key": "username",
+							"value": "testuser@example.com",
+							"type": "text"
+						},
+						{
+							"key": "password",
+							"value": "password",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{base_url}}/auth/login",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"auth",
+						"login"
+					]
+				},
+				"description": "Получает JWT токен и инициализирует переменные для очистки."
+			},
+			"response": []
+		},
+		{
+			"name": "Scheduled Payments and Cleanup",
+			"item": [
+				{
+					"name": "2. Setup - Get User Accounts",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+									"",
+									"const jsonData = pm.response.json();",
+									"let debtorId = null;",
+									"let creditorId = null;",
+									"",
+									"if (jsonData.accounts && jsonData.accounts.length >= 2) {",
+									"    debtorId = jsonData.accounts[0].id;",
+									"    creditorId = jsonData.accounts[1].id;",
+									"    ",
+									"    pm.environment.set(\"debtor_account_id\", debtorId);",
+									"    pm.environment.set(\"creditor_account_id\", creditorId);",
+									"    console.log(`Found accounts for test. Debtor ID: ${debtorId}, Creditor ID: ${creditorId}`);",
+									"} else {",
+									"    console.error(\"Test requires at least 2 accounts for the user, but found \" + (jsonData.accounts ? jsonData.accounts.length : 0));",
+									"}",
+									"",
+									"pm.test(\"Found at least two accounts to use for payments\", function () {",
+									"    pm.expect(debtorId).to.not.be.null;",
+									"    pm.expect(creditorId).to.not.be.null;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}/accounts/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"users",
+								"{{user_id}}",
+								"accounts",
+								""
+							]
+						},
+						"description": "Получает список счетов пользователя и сохраняет ID первых двух для использования в тестах."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Scheduled Payment (Fixed Amount)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+									"",
+									"var jsonData = pm.response.json();",
+									"if (jsonData && jsonData.id) {",
+									"    var created_ids = JSON.parse(pm.environment.get(\"created_payment_ids\") || \"[]\");",
+									"    created_ids.push(jsonData.id);",
+									"    pm.environment.set(\"created_payment_ids\", JSON.stringify(created_ids));",
+									"    console.log(\"Added payment ID to cleanup list: \" + jsonData.id);",
+									"    ",
+									"    pm.environment.set(\"payment_id\", jsonData.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"debtor_account_id\": {{debtor_account_id}},\n    \"creditor_account_id\": {{creditor_account_id}},\n    \"payment_day_of_month\": 15,\n    \"statement_day_of_month\": 25,\n    \"amount_type\": \"fixed\",\n    \"fixed_amount\": 125.50,\n    \"is_active\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}/scheduled-payments/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"users",
+								"{{user_id}}",
+								"scheduled-payments",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Another Payment (Total Debit)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+									"",
+									"var jsonData = pm.response.json();",
+									"if (jsonData && jsonData.id) {",
+									"    var created_ids = JSON.parse(pm.environment.get(\"created_payment_ids\") || \"[]\");",
+									"    created_ids.push(jsonData.id);",
+									"    pm.environment.set(\"created_payment_ids\", JSON.stringify(created_ids));",
+									"    console.log(\"Added payment ID to cleanup list: \" + jsonData.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"debtor_account_id\": {{creditor_account_id}},\n    \"creditor_account_id\": {{debtor_account_id}},\n    \"payment_day_of_month\": 20,\n    \"statement_day_of_month\": 1,\n    \"amount_type\": \"total_debit\",\n    \"is_active\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}/scheduled-payments/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"users",
+								"{{user_id}}",
+								"scheduled-payments",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Scheduled Payments",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}/scheduled-payments/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"users",
+								"{{user_id}}",
+								"scheduled-payments",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Last Created Payment",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"payment_day_of_month\": 18,\n    \"is_active\": false\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}/scheduled-payments/{{payment_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"users",
+								"{{user_id}}",
+								"scheduled-payments",
+								"{{payment_id}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "99. Cleanup - Delete All Created Payments",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"console.log(\"Starting cleanup process...\");",
+									"const created_ids = JSON.parse(pm.environment.get(\"created_payment_ids\") || \"[]\");",
+									"",
+									"if (created_ids.length === 0) {",
+									"    console.log(\"No payments to clean up.\");",
+									"    return;",
+									"}",
+									"",
+									"console.log(`Found ${created_ids.length} payments to delete.`);",
+									"",
+									"created_ids.forEach(function(paymentId) {",
+									"    const deleteRequest = {",
+									"        url: `${pm.environment.get('base_url')}/users/${pm.environment.get('user_id')}/scheduled-payments/${paymentId}`,",
+									"        method: 'DELETE',",
+									"        header: {",
+									"            'Authorization': `Bearer ${pm.environment.get('jwt_token')}`",
+									"        }",
+									"    };",
+									"",
+									"    pm.sendRequest(deleteRequest, function (err, res) {",
+									"        if (err) {",
+									"            console.error(`Error deleting payment ${paymentId}:`, err);",
+									"        } else {",
+									"            console.log(`Payment ${paymentId} deleted successfully. Status: ${res.code}`);",
+									"        }",
+									"    });",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/me",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"users",
+								"me"
+							]
+						},
+						"description": "Этот запрос-носитель нужен только для запуска скрипта очистки. Он обращается к безопасному эндпоинту GET /users/me."
+					},
+					"response": []
+				}
+			],
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{
+						"key": "token",
+						"value": "{{jwt_token}}",
+						"type": "string"
+					}
+				]
+			}
+		}
+	]
+}
