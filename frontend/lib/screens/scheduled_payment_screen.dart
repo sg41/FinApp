@@ -8,6 +8,7 @@ import '../models/account.dart';
 import '../models/scheduled_payment.dart';
 import '../providers/accounts_provider.dart';
 import '../providers/scheduled_payment_provider.dart';
+import '../utils/formatting.dart';
 
 class ScheduledPaymentScreen extends StatefulWidget {
   const ScheduledPaymentScreen({super.key});
@@ -20,9 +21,6 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
   final _formKey = GlobalKey<FormState>();
   final _fixedAmountController = TextEditingController();
 
-  // --- vvv ИСПРАВЛЕННАЯ ЛОГИКА ИНИЦИАЛИЗАЦИИ vvv ---
-
-  // Делаем поле nullable, чтобы избежать LateInitializationError
   Account? _creditorAccount;
   ScheduledPayment? _existingPayment;
 
@@ -31,16 +29,12 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
   int _paymentDay = 15;
   int _statementDay = 25;
 
-  // Экран всегда начинается в состоянии загрузки
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    // Этот код запланирует выполнение после отрисовки первого кадра.
-    // Это самый безопасный способ запустить загрузку данных.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // К этому моменту 'context' уже полностью доступен
       if (mounted) {
         _creditorAccount =
             ModalRoute.of(context)!.settings.arguments as Account;
@@ -50,7 +44,6 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
   }
 
   Future<void> _fetchInitialData() async {
-    // setState здесь не нужен, так как _isLoading уже true
     final provider = Provider.of<ScheduledPaymentProvider>(
       context,
       listen: false,
@@ -59,7 +52,6 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
       context,
       listen: false,
     );
-
     await provider.fetchData(accountsProvider);
 
     if (mounted) {
@@ -75,13 +67,10 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                 .toString();
           }
         }
-        // Завершаем загрузку и показываем форму
         _isLoading = false;
       });
     }
   }
-
-  // --- ^^^ КОНЕЦ ИСПРАВЛЕНИЙ ^^^ ---
 
   @override
   void dispose() {
@@ -136,7 +125,6 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Временный заголовок, пока _existingPayment не определен
     final appBarTitle = _isLoading
         ? 'Загрузка...'
         : (_existingPayment == null
@@ -167,11 +155,65 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                               decoration: const InputDecoration(
                                 labelText: 'Платить со счета',
                               ),
+                              isExpanded: true,
+                              itemHeight:
+                                  60, // Оставляем для выпадающего списка
+                              // selectedItemBuilder определяет, КАК будет выглядеть ВЫБРАННЫЙ элемент
+                              selectedItemBuilder: (BuildContext context) {
+                                return availableAccounts.map<Widget>((
+                                  Account account,
+                                ) {
+                                  // Возвращаем простой однострочный Text
+                                  return Text(
+                                    '${account.nickname} (${account.bankName.toUpperCase()})',
+                                    overflow: TextOverflow
+                                        .ellipsis, // Защита от переполнения
+                                  );
+                                }).toList();
+                              },
+
+                              // items определяет, КАК выглядят элементы ВНУТРИ выпадающего списка
                               items: availableAccounts.map((Account account) {
+                                final balance = account.availableBalance;
+                                final balanceText = balance != null
+                                    ? (num.tryParse(balance.amount) ?? 0.0)
+                                          .toFormattedCurrency(balance.currency)
+                                    : 'Баланс н/д';
+
                                 return DropdownMenuItem<int>(
                                   value: account.id,
-                                  child: Text(
-                                    '${account.nickname} (${account.bankName.toUpperCase()})',
+                                  // Этот сложный Column будет виден только при выборе
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        '${account.nickname} (${account.bankName.toUpperCase()})',
+                                        style: const TextStyle(fontSize: 16),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      Text.rich(
+                                        TextSpan(
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: Colors.grey.shade700,
+                                          ),
+                                          children: [
+                                            TextSpan(
+                                              text:
+                                                  '${account.bankClientId}     ',
+                                            ),
+                                            TextSpan(
+                                              text: balanceText,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 );
                               }).toList(),

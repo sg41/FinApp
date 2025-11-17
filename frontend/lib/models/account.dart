@@ -31,6 +31,18 @@ class Account {
     this.paymentDate,
   });
 
+  /// Возвращает баланс типа 'InterimAvailable' или null, если он не найден.
+  Balance? get availableBalance {
+    try {
+      // Ищем баланс с нужным типом
+      return balances.firstWhere((b) => b.type == 'InterimAvailable');
+    } catch (e) {
+      // Если firstWhere не находит элемент, он выбрасывает исключение.
+      // Мы его ловим и возвращаем null.
+      return null;
+    }
+  }
+
   factory Account.fromJson(Map<String, dynamic> json) {
     // Проверяем наличие и тип bank_id
     if (json['bank_id'] == null || json['bank_id'] is! int) {

@@ -119,7 +119,9 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
                     // Если автоплатежа нет, показываем кнопку добавления
                     OutlinedButton.icon(
                       icon: const Icon(Icons.add_circle_outline),
-                      label: const Text('Добавить автоплатеж'),
+                      label: const Text(
+                        'Настроить автопополнение данного счета',
+                      ), // <-- ИЗМЕНЕННЫЙ ТЕКСТ
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         textStyle: const TextStyle(fontSize: 16),
