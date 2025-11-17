@@ -8,6 +8,7 @@ import '../models/connection.dart';
 import '../models/bank.dart';
 import '../models/turnover_data.dart';
 import '../models/transaction.dart'; // <-- ДОБАВЬТЕ ЭТОТ ИМПОРТ
+import '../models/scheduled_payment.dart'; // <-- НОВЫЙ ИМПОРТ
 
 class ApiService {
   Future<Map<String, dynamic>> login(String email, String password) async {
@@ -298,6 +299,88 @@ class ApiService {
           .toList();
     } else {
       throw Exception('Failed to load transactions: ${response.body}');
+    }
+  }
+
+  Future<List<ScheduledPayment>> getScheduledPayments(
+    String token,
+    int userId,
+  ) async {
+    final response = await http.get(
+      Uri.parse('$API_BASE_URL/users/$userId/scheduled-payments/'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+
+    if (response.statusCode == 200) {
+      final body = json.decode(utf8.decode(response.bodyBytes));
+      final List paymentsJson = body['payments'];
+      return paymentsJson
+          .map((json) => ScheduledPayment.fromJson(json))
+          .toList();
+    } else {
+      throw Exception('Failed to load scheduled payments');
+    }
+  }
+
+  Future<ScheduledPayment> createScheduledPayment(
+    String token,
+    int userId,
+    Map<String, dynamic> data,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$API_BASE_URL/users/$userId/scheduled-payments/'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode(data),
+    );
+
+    if (response.statusCode == 200) {
+      return ScheduledPayment.fromJson(
+        json.decode(utf8.decode(response.bodyBytes)),
+      );
+    } else {
+      throw Exception('Failed to create scheduled payment: ${response.body}');
+    }
+  }
+
+  Future<ScheduledPayment> updateScheduledPayment(
+    String token,
+    int userId,
+    int paymentId,
+    Map<String, dynamic> data,
+  ) async {
+    final response = await http.put(
+      Uri.parse('$API_BASE_URL/users/$userId/scheduled-payments/$paymentId'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode(data),
+    );
+
+    if (response.statusCode == 200) {
+      return ScheduledPayment.fromJson(
+        json.decode(utf8.decode(response.bodyBytes)),
+      );
+    } else {
+      throw Exception('Failed to update scheduled payment: ${response.body}');
+    }
+  }
+
+  Future<void> deleteScheduledPayment(
+    String token,
+    int userId,
+    int paymentId,
+  ) async {
+    final response = await http.delete(
+      Uri.parse('$API_BASE_URL/users/$userId/scheduled-payments/$paymentId'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to delete scheduled payment: ${response.body}');
     }
   }
 }

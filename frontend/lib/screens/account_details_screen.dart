@@ -3,14 +3,45 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import '../models/account.dart';
-import '../providers/account_details_provider.dart';
-import '../utils/formatting.dart';
-import '../models/account.dart' show Balance;
-import '../widgets/scheduled_payment_form.dart'; // <-- НОВЫЙ ИМПОРТ
 
-class AccountDetailsScreen extends StatelessWidget {
+import '../models/account.dart';
+import '../models/account.dart' show Balance;
+import '../providers/account_details_provider.dart';
+import '../providers/accounts_provider.dart';
+import '../providers/scheduled_payment_provider.dart';
+import '../utils/formatting.dart';
+import '../widgets/scheduled_payment_info_card.dart';
+
+class AccountDetailsScreen extends StatefulWidget {
   const AccountDetailsScreen({super.key});
+
+  @override
+  State<AccountDetailsScreen> createState() => _AccountDetailsScreenState();
+}
+
+class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _fetchData();
+  }
+
+  Future<void> _fetchData() async {
+    // Используем addPostFrameCallback, чтобы гарантировать, что context доступен
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final scheduledPaymentProvider = Provider.of<ScheduledPaymentProvider>(
+        context,
+        listen: false,
+      );
+      final accountsProvider = Provider.of<AccountsProvider>(
+        context,
+        listen: false,
+      );
+      // Этот метод загрузит и существующие автоплатежи, и список всех счетов
+      scheduledPaymentProvider.fetchData(accountsProvider);
+    });
+  }
 
   Future<void> _selectDateRange(BuildContext context) async {
     final provider = Provider.of<AccountDetailsProvider>(
@@ -20,7 +51,6 @@ class AccountDetailsScreen extends StatelessWidget {
     final account = provider.account;
     if (account == null) return;
 
-    // Устанавливаем начальный диапазон на основе текущих дат в счете
     final initialRange = DateTimeRange(
       start:
           account.statementDate ??
@@ -37,7 +67,6 @@ class AccountDetailsScreen extends StatelessWidget {
 
     if (newRange == null) return; // Пользователь нажал "Отмена"
 
-    // Вызываем метод обновления с обеими новыми датами
     provider.updateAndRefresh(
       statementDate: newRange.start,
       paymentDate: newRange.end,
@@ -46,62 +75,103 @@ class AccountDetailsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Используем Consumer для подписки на изменения
-    return Consumer<AccountDetailsProvider>(
-      builder: (context, provider, child) {
-        if (provider.account == null) {
-          // Показываем заглушку, пока провайдер не инициализирован
+    // Используем Consumer2 для подписки на два провайдера одновременно
+    return Consumer2<AccountDetailsProvider, ScheduledPaymentProvider>(
+      builder: (context, detailsProvider, scheduledProvider, child) {
+        if (detailsProvider.account == null) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
 
-        final account = provider.account!;
-        final hasDates =
-            account.statementDate != null && account.paymentDate != null;
+        final account = detailsProvider.account!;
+        final existingPayment = scheduledProvider.getPaymentForAccount(
+          account.id,
+        );
 
         return PopScope(
           canPop: false,
           onPopInvoked: (bool didPop) {
             if (didPop) return;
-            Navigator.of(context).pop(provider.dataChanged);
+            // Возвращаем true, если данные по оборотам были изменены
+            Navigator.of(context).pop(detailsProvider.dataChanged);
           },
           child: Scaffold(
             appBar: AppBar(title: Text(account.nickname)),
-            body: ListView(
-              padding: const EdgeInsets.all(16.0),
-              children: [
-                _buildInfoCard(context, account),
-                const SizedBox(height: 16),
-                // VVV ДОБАВЛЯЕМ НОВЫЙ ВИДЖЕТ ЗДЕСЬ VVV
-                const ScheduledPaymentForm(),
-                const SizedBox(height: 16),
-                // ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^
-                if (provider.isLoading)
-                  const Center(child: CircularProgressIndicator())
-                else
-                  GestureDetector(
-                    onTap: hasDates
-                        ? () {
-                            Navigator.of(context).pushNamed(
-                              '/transactions',
-                              arguments: {
-                                'account': account,
-                                'fromDate': account.statementDate!,
-                                'toDate': account.paymentDate!,
-                              },
-                            );
-                          }
-                        : null,
-                    child: _buildTurnoverCard(context, provider, account),
-                  ),
-              ],
+            body: RefreshIndicator(
+              onRefresh: _fetchData,
+              child: ListView(
+                padding: const EdgeInsets.all(16.0),
+                children: [
+                  _buildInfoCard(context, account),
+                  const SizedBox(height: 16),
+
+                  // --- ОСНОВНАЯ ЛОГИКА ОТОБРАЖЕНИЯ АВТОПЛАТЕЖА ---
+                  if (scheduledProvider.isLoading)
+                    const Center(child: CircularProgressIndicator())
+                  else if (existingPayment != null)
+                    // Если автоплатеж есть, показываем инфо-карточку
+                    ScheduledPaymentInfoCard(
+                      payment: existingPayment,
+                      creditorAccount: account,
+                    )
+                  else
+                    // Если автоплатежа нет, показываем кнопку добавления
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.add_circle_outline),
+                      label: const Text('Добавить автоплатеж'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        textStyle: const TextStyle(fontSize: 16),
+                      ),
+                      onPressed: () async {
+                        final result = await Navigator.of(context).pushNamed(
+                          '/scheduled-payment',
+                          arguments: account, // Передаем текущий счет
+                        );
+                        // Если с экрана создания/редактирования вернулся true, обновляем данные
+                        if (result == true && mounted) {
+                          _fetchData();
+                        }
+                      },
+                    ),
+
+                  const SizedBox(height: 16),
+
+                  if (detailsProvider.isLoading)
+                    const Center(child: CircularProgressIndicator())
+                  else
+                    GestureDetector(
+                      onTap:
+                          (account.statementDate != null &&
+                              account.paymentDate != null)
+                          ? () {
+                              Navigator.of(context).pushNamed(
+                                '/transactions',
+                                arguments: {
+                                  'account': account,
+                                  'fromDate': account.statementDate!,
+                                  'toDate': account.paymentDate!,
+                                },
+                              );
+                            }
+                          : null,
+                      child: _buildTurnoverCard(
+                        context,
+                        detailsProvider,
+                        account,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         );
       },
     );
   }
+
+  // --- Вспомогательные методы для отрисовки UI ---
 
   List<Widget> _buildBalanceRows(Account account) {
     final List<Widget> widgets = [];
@@ -113,7 +183,7 @@ class AccountDetailsScreen extends StatelessWidget {
         (b) => b.type == 'InterimAvailable',
       );
     } catch (e) {
-      /* InterimAvailable не найден, он останется null */
+      /* не найден */
     }
 
     try {
@@ -121,7 +191,7 @@ class AccountDetailsScreen extends StatelessWidget {
         (b) => b.type == 'InterimBooked',
       );
     } catch (e) {
-      /* InterimBooked не найден, он останется null */
+      /* не найден */
     }
 
     if (availableBalance == null) {
@@ -158,11 +228,10 @@ class AccountDetailsScreen extends StatelessWidget {
         );
       }
     }
-
     return widgets;
   }
 
-  Widget _buildInfoCard(BuildContext context, Account _account) {
+  Widget _buildInfoCard(BuildContext context, Account account) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -174,17 +243,17 @@ class AccountDetailsScreen extends StatelessWidget {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const Divider(),
-            _buildInfoRow('Банк:', _account.bankName.toUpperCase()),
-            if (_account.ownerName != null)
-              _buildInfoRow('Владелец:', _account.ownerName!),
-            _buildInfoRow('Тип:', _account.accountType ?? 'N/A'),
-            _buildInfoRow('Статус:', _account.status ?? 'N/A'),
-            _buildInfoRow('ID счета:', _account.apiAccountId),
-            _buildInfoRow('ID клиента:', _account.bankClientId),
+            _buildInfoRow('Банк:', account.bankName.toUpperCase()),
+            if (account.ownerName != null)
+              _buildInfoRow('Владелец:', account.ownerName!),
+            _buildInfoRow('Тип:', account.accountType ?? 'N/A'),
+            _buildInfoRow('Статус:', account.status ?? 'N/A'),
+            _buildInfoRow('ID счета:', account.apiAccountId),
+            _buildInfoRow('ID клиента:', account.bankClientId),
             const SizedBox(height: 16),
             Text('Балансы', style: Theme.of(context).textTheme.titleLarge),
             const Divider(),
-            ..._buildBalanceRows(_account),
+            ..._buildBalanceRows(account),
           ],
         ),
       ),
@@ -194,7 +263,7 @@ class AccountDetailsScreen extends StatelessWidget {
   Widget _buildTurnoverCard(
     BuildContext context,
     AccountDetailsProvider provider,
-    Account account, // Принимаем аккаунт для отображения дат
+    Account account,
   ) {
     return Card(
       color: Colors.blue[50],
@@ -203,27 +272,21 @@ class AccountDetailsScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // --- vvv ИЗМЕНЕНИЕ ЗДЕСЬ vvv ---
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(
-                  // 1. Оборачиваем заголовок в Expanded
                   child: Text(
                     'Обороты за период',
                     style: Theme.of(context).textTheme.titleLarge,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                const SizedBox(width: 8), // 2. Заменяем Spacer на отступ
                 InkWell(
                   onTap: () => _selectDateRange(context),
-                  borderRadius: BorderRadius.circular(8), // для красоты
+                  borderRadius: BorderRadius.circular(8),
                   child: Padding(
                     padding: const EdgeInsets.all(4.0),
                     child: Row(
-                      mainAxisSize: MainAxisSize.min,
                       children: [
                         if (account.statementDate != null &&
                             account.paymentDate != null)
@@ -249,7 +312,6 @@ class AccountDetailsScreen extends StatelessWidget {
                 ),
               ],
             ),
-            // --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
             const Divider(),
             if (provider.turnoverData != null) ...[
               _buildInfoRow(

@@ -13,6 +13,8 @@ import 'screens/add_connection_screen.dart';
 import 'screens/account_details_screen.dart'; // <-- ДОБАВИТЬ
 import 'screens/transactions_screen.dart'; // <-- ДОБАВЬТЕ ЭТОТ ИМПОРТ
 import 'providers/account_details_provider.dart'; // <-- ДОБАВИТЬ ИМПОРТ
+import 'providers/scheduled_payment_provider.dart'; // <-- НОВЫЙ ИМПОРТ
+import 'screens/scheduled_payment_screen.dart'; // <-- НОВЫЙ ИМПОРТ
 
 void main() {
   runApp(const MyApp());
@@ -46,6 +48,10 @@ class MyApp extends StatelessWidget {
           create: (ctx) => AccountDetailsProvider(null),
           update: (ctx, auth, _) => AccountDetailsProvider(auth),
         ),
+        ChangeNotifierProxyProvider<AuthProvider, ScheduledPaymentProvider>(
+          create: (ctx) => ScheduledPaymentProvider(null),
+          update: (ctx, auth, _) => ScheduledPaymentProvider(auth),
+        ),
       ],
       child: Consumer<AuthProvider>(
         builder: (ctx, auth, _) => MaterialApp(
@@ -72,6 +78,7 @@ class MyApp extends StatelessWidget {
             '/account-details': (ctx) => const AccountDetailsScreen(),
             '/transactions': (ctx) =>
                 const TransactionsScreen(), // <-- ДОБАВЬТЕ ЭТУ СТРОКУ
+            '/scheduled-payment': (ctx) => const ScheduledPaymentScreen(),
           },
         ),
       ),
