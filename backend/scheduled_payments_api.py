@@ -104,7 +104,18 @@ def update_scheduled_payment(
 
     # 2. Получаем словарь с данными, которые клиент хочет обновить
     update_dict = update_data.model_dump(exclude_unset=True)
+    # --- vvv ДОПОЛНИТЕЛЬНАЯ ЛОГИКА ДЛЯ КОНСИСТЕНТНОСТИ ДАННЫХ vvv ---
 
+    # Определяем, каким будет тип платежа ПОСЛЕ обновления
+    final_amount_type = update_data.amount_type.value if 'amount_type' in update_dict else db_payment.amount_type.value
+
+    # Если новый тип НЕ 'fixed', мы должны принудительно обнулить fixed_amount,
+    # даже если клиент этого не прислал.
+    if final_amount_type != 'fixed':
+        update_dict['fixed_amount'] = None
+
+    # --- ^^^ КОНЕЦ ДОПОЛНИТЕЛЬНОЙ ЛОГИКИ ^^^ ---
+    
     # 3. Если в обновлении есть amount_type, преобразуем его в enum для модели
     if 'amount_type' in update_dict and update_dict['amount_type'] is not None:
         schema_enum_value = update_data.amount_type.value

@@ -1,5 +1,5 @@
 # finance-app-master/schemas.py
-from pydantic import BaseModel, field_validator, Field
+from pydantic import BaseModel, field_validator, Field, model_validator
 from typing import Optional, List, Any
 from datetime import datetime, date
 from decimal import Decimal
@@ -242,14 +242,15 @@ class PaymentListResponse(BaseModel):
     payments: List[PaymentResponse]
 # --- ^^^ КОНЕЦ НОВЫХ СХЕМ ^^^ ---
 
-# --- vvv НОВЫЕ СХЕМЫ ДЛЯ АВТОПЛАТЕЖЕЙ vvv ---
-
 class ScheduledPaymentAmountTypeEnum(str, enum.Enum):
     FIXED = "fixed"
     TOTAL_DEBIT = "total_debit"
     NET_DEBIT = "net_debit"
 
-class ScheduledPaymentBase(BaseModel):
+# --- vvv НАЧАЛО ИЗМЕНЕНИЙ vvv ---
+
+# ШАГ 1: Создаем "ядро" с полями, но без валидации.
+class ScheduledPaymentCore(BaseModel):
     debtor_account_id: int
     creditor_account_id: int
     payment_day_of_month: int = Field(..., ge=1, le=31)
@@ -258,19 +259,32 @@ class ScheduledPaymentBase(BaseModel):
     fixed_amount: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
     is_active: bool = True
 
+# ШАГ 2: Базовая схема для ВВОДА данных. Она наследует поля и добавляет валидатор.
+class ScheduledPaymentBase(ScheduledPaymentCore):
+    @model_validator(mode='after')
+    def validate_fixed_amount_if_needed(self) -> 'ScheduledPaymentBase':
+        if self.amount_type == ScheduledPaymentAmountTypeEnum.FIXED:
+            if self.fixed_amount is None or self.fixed_amount <= 0:
+                raise ValueError(
+                    'For a "fixed" amount type, fixed_amount must be provided and be greater than zero.'
+                )
+        return self
+
+# ШАГ 3: Схемы создания и обновления наследуются от базы с валидатором.
 class ScheduledPaymentCreate(ScheduledPaymentBase):
     pass
 
 class ScheduledPaymentUpdate(ScheduledPaymentBase):
-    # Делаем все поля опциональными для обновления
     debtor_account_id: Optional[int] = None
     creditor_account_id: Optional[int] = None
     payment_day_of_month: Optional[int] = Field(None, ge=1, le=31)
     statement_day_of_month: Optional[int] = Field(None, ge=1, le=31)
     amount_type: Optional[ScheduledPaymentAmountTypeEnum] = None
     is_active: Optional[bool] = None
+    fixed_amount: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2) # Явно переопределяем для опциональности
 
-class ScheduledPaymentResponse(ScheduledPaymentBase):
+# ШАГ 4: Схема ответа наследуется от "ядра" БЕЗ валидатора.
+class ScheduledPaymentResponse(ScheduledPaymentCore):
     id: int
     user_id: int
     currency: Optional[str] = None
@@ -284,4 +298,4 @@ class ScheduledPaymentListResponse(BaseModel):
     count: int
     payments: List[ScheduledPaymentResponse]
 
-# --- ^^^ КОНЕЦ НОВЫХ СХЕМ ^^^ ---
+# --- ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^ ---
