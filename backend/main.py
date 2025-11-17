@@ -14,6 +14,7 @@ from accounts_api import router as accounts_router
 from transactions_api import router as transactions_router 
 from payment_consents_api import router as payment_consents_router
 from payments_api import router as payments_router # <--- ДОБАВЛЕН ИМПОРТ
+from scheduled_payments_api import router as scheduled_payments_router # <--- НОВЫЙ ИМПОРТ
 
 load_dotenv()
 
@@ -47,3 +48,4 @@ app.include_router(accounts_router)
 app.include_router(transactions_router)
 app.include_router(payment_consents_router)
 app.include_router(payments_router) # <--- ПОДКЛЮЧЕН НОВЫЙ РОУТЕР
+app.include_router(scheduled_payments_router) # <--- ПОДКЛЮЧИТЬ НОВЫЙ РОУТЕР

@@ -1,5 +1,6 @@
 # finance-app-master/models.py
-from sqlalchemy import Column, Integer, String, Date, ForeignKey, Boolean, JSON, DateTime, Numeric
+import enum
+from sqlalchemy import Column, Integer, String, Boolean, Numeric, Enum, ForeignKey, DateTime, Date
 from sqlalchemy.orm import relationship, column_property
 from sqlalchemy.dialects.postgresql import JSONB 
 from sqlalchemy.sql import func 
@@ -116,3 +117,36 @@ class Payment(Base):
     user = relationship("User")
     debtor_account = relationship("Account")
     consent = relationship("PaymentConsent", back_populates="payments")
+
+# Добавляем Enum для типа суммы
+class ScheduledPaymentAmountType(enum.Enum):
+    FIXED = "fixed"                  # Фиксированная сумма
+    TOTAL_DEBIT = "total_debit"      # Все расходы за период
+    NET_DEBIT = "net_debit"          # Разница между расходами и доходами
+
+class ScheduledPayment(Base):
+    __tablename__ = "scheduled_payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Счет, С которого будет списание
+    debtor_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False) 
+    # Счет, НА который будет зачисление
+    creditor_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False) 
+
+    payment_day_of_month = Column(Integer, nullable=False) # Число месяца для платежа (1-31)
+    statement_day_of_month = Column(Integer, nullable=False) # Число месяца для выписки
+
+    amount_type = Column(Enum(ScheduledPaymentAmountType), nullable=False)
+    fixed_amount = Column(Numeric(10, 2), nullable=True) # Только для amount_type = FIXED
+    currency = Column(String(3), nullable=True) # Только для amount_type = FIXED
+    
+    is_active = Column(Boolean, default=True, nullable=False) # Можно временно отключать
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User")
+    debtor_account = relationship("Account", foreign_keys=[debtor_account_id])
+    creditor_account = relationship("Account", foreign_keys=[creditor_account_id])

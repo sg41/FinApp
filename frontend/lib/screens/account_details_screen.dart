@@ -7,6 +7,7 @@ import '../models/account.dart';
 import '../providers/account_details_provider.dart';
 import '../utils/formatting.dart';
 import '../models/account.dart' show Balance;
+import '../widgets/scheduled_payment_form.dart'; // <-- НОВЫЙ ИМПОРТ
 
 class AccountDetailsScreen extends StatelessWidget {
   const AccountDetailsScreen({super.key});
@@ -72,6 +73,10 @@ class AccountDetailsScreen extends StatelessWidget {
               children: [
                 _buildInfoCard(context, account),
                 const SizedBox(height: 16),
+                // VVV ДОБАВЛЯЕМ НОВЫЙ ВИДЖЕТ ЗДЕСЬ VVV
+                const ScheduledPaymentForm(),
+                const SizedBox(height: 16),
+                // ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^
                 if (provider.isLoading)
                   const Center(child: CircularProgressIndicator())
                 else

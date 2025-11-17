@@ -3,6 +3,7 @@ from pydantic import BaseModel, field_validator, Field
 from typing import Optional, List, Any
 from datetime import datetime, date
 from decimal import Decimal
+import enum
 
 class UserCreate(BaseModel):
     email: str
@@ -239,4 +240,48 @@ class PaymentResponse(BaseModel):
 class PaymentListResponse(BaseModel):
     count: int
     payments: List[PaymentResponse]
+# --- ^^^ КОНЕЦ НОВЫХ СХЕМ ^^^ ---
+
+# --- vvv НОВЫЕ СХЕМЫ ДЛЯ АВТОПЛАТЕЖЕЙ vvv ---
+
+class ScheduledPaymentAmountTypeEnum(str, enum.Enum):
+    FIXED = "fixed"
+    TOTAL_DEBIT = "total_debit"
+    NET_DEBIT = "net_debit"
+
+class ScheduledPaymentBase(BaseModel):
+    debtor_account_id: int
+    creditor_account_id: int
+    payment_day_of_month: int = Field(..., ge=1, le=31)
+    statement_day_of_month: int = Field(..., ge=1, le=31)
+    amount_type: ScheduledPaymentAmountTypeEnum
+    fixed_amount: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
+    is_active: bool = True
+
+class ScheduledPaymentCreate(ScheduledPaymentBase):
+    pass
+
+class ScheduledPaymentUpdate(ScheduledPaymentBase):
+    # Делаем все поля опциональными для обновления
+    debtor_account_id: Optional[int] = None
+    creditor_account_id: Optional[int] = None
+    payment_day_of_month: Optional[int] = Field(None, ge=1, le=31)
+    statement_day_of_month: Optional[int] = Field(None, ge=1, le=31)
+    amount_type: Optional[ScheduledPaymentAmountTypeEnum] = None
+    is_active: Optional[bool] = None
+
+class ScheduledPaymentResponse(ScheduledPaymentBase):
+    id: int
+    user_id: int
+    currency: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class ScheduledPaymentListResponse(BaseModel):
+    count: int
+    payments: List[ScheduledPaymentResponse]
+
 # --- ^^^ КОНЕЦ НОВЫХ СХЕМ ^^^ ---
