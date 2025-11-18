@@ -89,11 +89,7 @@ def update_scheduled_payment(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(user_is_admin_or_self)
 ):
-    """
-    Обновляет параметры существующего автоплатежа.
-    Позволяет изменять любые поля, переданные в теле запроса.
-    """
-    # 1. Находим платеж в БД и проверяем, что он принадлежит пользователю
+    # ... (поиск платежа) ...
     db_payment = db.query(models.ScheduledPayment).filter(
         models.ScheduledPayment.id == payment_id,
         models.ScheduledPayment.user_id == user_id
@@ -101,42 +97,37 @@ def update_scheduled_payment(
 
     if not db_payment:
         raise HTTPException(status_code=404, detail="Scheduled payment not found.")
-
-    # 2. Получаем словарь с данными, которые клиент хочет обновить
+        
     update_dict = update_data.model_dump(exclude_unset=True)
-    # --- vvv ДОПОЛНИТЕЛЬНАЯ ЛОГИКА ДЛЯ КОНСИСТЕНТНОСТИ ДАННЫХ vvv ---
-
-    # Определяем, каким будет тип платежа ПОСЛЕ обновления
+    
+    # --- vvv ОБНОВЛЕННАЯ ЛОГИКА КОНСИСТЕНТНОСТИ ДАННЫХ vvv ---
     final_amount_type = update_data.amount_type.value if 'amount_type' in update_dict else db_payment.amount_type.value
 
-    # Если новый тип НЕ 'fixed', мы должны принудительно обнулить fixed_amount,
-    # даже если клиент этого не прислал.
+    # Если новый тип НЕ 'fixed', обнуляем fixed_amount
     if final_amount_type != 'fixed':
         update_dict['fixed_amount'] = None
-
-    # --- ^^^ КОНЕЦ ДОПОЛНИТЕЛЬНОЙ ЛОГИКИ ^^^ ---
+        
+    # Если новый тип НЕ 'minimum_payment', обнуляем процент
+    if final_amount_type != 'minimum_payment':
+        update_dict['minimum_payment_percentage'] = None
+    # --- ^^^ КОНЕЦ ОБНОВЛЕННОЙ ЛОГИКИ ^^^ ---
     
-    # 3. Если в обновлении есть amount_type, преобразуем его в enum для модели
+    # ... (остальная часть функции остается без изменений) ...
     if 'amount_type' in update_dict and update_dict['amount_type'] is not None:
         schema_enum_value = update_data.amount_type.value
         model_enum_member = models.ScheduledPaymentAmountType(schema_enum_value)
         update_dict['amount_type'] = model_enum_member
 
-    # 4. Если меняется счет списания, мы ОБЯЗАНЫ обновить валюту
     if 'debtor_account_id' in update_dict:
         new_debtor_id = update_dict['debtor_account_id']
         new_debtor_account = db.query(models.Account).join(models.ConnectedBank).filter(
             models.Account.id == new_debtor_id,
             models.ConnectedBank.user_id == user_id
         ).first()
-        
         if not new_debtor_account:
             raise HTTPException(status_code=404, detail="New debtor account not found or access denied.")
-        
-        # Обновляем валюту в словаре для апдейта
         update_dict['currency'] = new_debtor_account.currency
 
-    # 5. Применяем обновления к объекту модели
     for key, value in update_dict.items():
         setattr(db_payment, key, value)
     

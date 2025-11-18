@@ -246,10 +246,8 @@ class ScheduledPaymentAmountTypeEnum(str, enum.Enum):
     FIXED = "fixed"
     TOTAL_DEBIT = "total_debit"
     NET_DEBIT = "net_debit"
+    MINIMUM_PAYMENT = "minimum_payment" # <-- НОВОЕ ЗНАЧЕНИЕ
 
-# --- vvv НАЧАЛО ИЗМЕНЕНИЙ vvv ---
-
-# ШАГ 1: Создаем "ядро" с полями, но без валидации.
 class ScheduledPaymentCore(BaseModel):
     debtor_account_id: int
     creditor_account_id: int
@@ -257,20 +255,28 @@ class ScheduledPaymentCore(BaseModel):
     statement_day_of_month: int = Field(..., ge=1, le=31)
     amount_type: ScheduledPaymentAmountTypeEnum
     fixed_amount: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
+    # vvv НОВОЕ ПОЛЕ vvv
+    minimum_payment_percentage: Optional[Decimal] = Field(None, max_digits=5, decimal_places=2, description="Процент для минимального платежа, например 10.50")
+    # ^^^ КОНЕЦ НОВОГО ПОЛЯ ^^^
     is_active: bool = True
 
-# ШАГ 2: Базовая схема для ВВОДА данных. Она наследует поля и добавляет валидатор.
 class ScheduledPaymentBase(ScheduledPaymentCore):
     @model_validator(mode='after')
-    def validate_fixed_amount_if_needed(self) -> 'ScheduledPaymentBase':
+    def validate_amounts_by_type(self) -> 'ScheduledPaymentBase':
         if self.amount_type == ScheduledPaymentAmountTypeEnum.FIXED:
             if self.fixed_amount is None or self.fixed_amount <= 0:
                 raise ValueError(
                     'For a "fixed" amount type, fixed_amount must be provided and be greater than zero.'
                 )
+        # vvv НОВЫЙ БЛОК ВАЛИДАЦИИ vvv
+        elif self.amount_type == ScheduledPaymentAmountTypeEnum.MINIMUM_PAYMENT:
+            if self.minimum_payment_percentage is None or self.minimum_payment_percentage <= 0:
+                 raise ValueError(
+                    'For a "minimum_payment" amount type, minimum_payment_percentage must be provided and be greater than zero.'
+                )
+        # ^^^ КОНЕЦ НОВОГО БЛОКА ^^^
         return self
 
-# ШАГ 3: Схемы создания и обновления наследуются от базы с валидатором.
 class ScheduledPaymentCreate(ScheduledPaymentBase):
     pass
 
@@ -281,9 +287,11 @@ class ScheduledPaymentUpdate(ScheduledPaymentBase):
     statement_day_of_month: Optional[int] = Field(None, ge=1, le=31)
     amount_type: Optional[ScheduledPaymentAmountTypeEnum] = None
     is_active: Optional[bool] = None
-    fixed_amount: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2) # Явно переопределяем для опциональности
+    fixed_amount: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
+    # vvv НОВОЕ ПОЛЕ vvv
+    minimum_payment_percentage: Optional[Decimal] = Field(None, max_digits=5, decimal_places=2)
+    # ^^^ КОНЕЦ НОВОГО ПОЛЯ ^^^
 
-# ШАГ 4: Схема ответа наследуется от "ядра" БЕЗ валидатора.
 class ScheduledPaymentResponse(ScheduledPaymentCore):
     id: int
     user_id: int
@@ -297,5 +305,3 @@ class ScheduledPaymentResponse(ScheduledPaymentCore):
 class ScheduledPaymentListResponse(BaseModel):
     count: int
     payments: List[ScheduledPaymentResponse]
-
-# --- ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^ ---

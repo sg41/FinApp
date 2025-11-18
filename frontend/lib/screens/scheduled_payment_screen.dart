@@ -20,6 +20,9 @@ class ScheduledPaymentScreen extends StatefulWidget {
 class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
   final _formKey = GlobalKey<FormState>();
   final _fixedAmountController = TextEditingController();
+  // vvv НОВЫЙ КОНТРОЛЛЕР vvv
+  final _percentageController = TextEditingController();
+  // ^^^ КОНЕЦ ^^^
 
   Account? _creditorAccount;
   ScheduledPayment? _existingPayment;
@@ -66,6 +69,13 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
             _fixedAmountController.text = _existingPayment!.fixedAmount
                 .toString();
           }
+          // vvv ЗАПОЛНЯЕМ НОВОЕ ПОЛЕ vvv
+          if (_existingPayment!.minimumPaymentPercentage != null) {
+            _percentageController.text = _existingPayment!
+                .minimumPaymentPercentage
+                .toString();
+          }
+          // ^^^ КОНЕЦ ^^^
         }
         _isLoading = false;
       });
@@ -75,6 +85,7 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
   @override
   void dispose() {
     _fixedAmountController.dispose();
+    _percentageController.dispose(); // <-- НЕ ЗАБЫТЬ
     super.dispose();
   }
 
@@ -100,6 +111,12 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
       'fixed_amount': _selectedAmountType == AmountType.fixed
           ? double.tryParse(_fixedAmountController.text)
           : null,
+      // vvv ДОБАВЛЯЕМ НОВОЕ ПОЛЕ В ЗАПРОС vvv
+      'minimum_payment_percentage':
+          _selectedAmountType == AmountType.minimum_payment
+          ? double.tryParse(_percentageController.text)
+          : null,
+      // ^^^ КОНЕЦ ^^^
       'is_active': true,
     };
 
@@ -128,7 +145,7 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
     final appBarTitle = _isLoading
         ? 'Загрузка...'
         : (_existingPayment == null
-              ? 'Новый автоплатеж'
+              ? 'Настройка автопополнения счета'
               : 'Изменить автоплатеж');
 
     return Scaffold(
@@ -153,26 +170,20 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                             DropdownButtonFormField<int>(
                               value: _selectedDebtorAccountId,
                               decoration: const InputDecoration(
-                                labelText: 'Платить со счета',
+                                labelText: 'Переводить со счета',
                               ),
                               isExpanded: true,
-                              itemHeight:
-                                  60, // Оставляем для выпадающего списка
-                              // selectedItemBuilder определяет, КАК будет выглядеть ВЫБРАННЫЙ элемент
+                              itemHeight: 60,
                               selectedItemBuilder: (BuildContext context) {
                                 return availableAccounts.map<Widget>((
                                   Account account,
                                 ) {
-                                  // Возвращаем простой однострочный Text
                                   return Text(
                                     '${account.nickname} (${account.bankName.toUpperCase()})',
-                                    overflow: TextOverflow
-                                        .ellipsis, // Защита от переполнения
+                                    overflow: TextOverflow.ellipsis,
                                   );
                                 }).toList();
                               },
-
-                              // items определяет, КАК выглядят элементы ВНУТРИ выпадающего списка
                               items: availableAccounts.map((Account account) {
                                 final balance = account.availableBalance;
                                 final balanceText = balance != null
@@ -182,7 +193,6 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
 
                                 return DropdownMenuItem<int>(
                                   value: account.id,
-                                  // Этот сложный Column будет виден только при выборе
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
@@ -247,26 +257,37 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                                         setState(() => _paymentDay = val!),
                                   ),
                                 ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: DropdownButtonFormField<int>(
-                                    value: _statementDay,
-                                    decoration: const InputDecoration(
-                                      labelText: 'День выписки',
+                                // --- ОБНОВЛЕННОЕ УСЛОВИЕ ---
+                                if (_selectedAmountType ==
+                                        AmountType.total_debit ||
+                                    _selectedAmountType ==
+                                        AmountType.net_debit ||
+                                    _selectedAmountType ==
+                                        AmountType.minimum_payment) ...[
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: DropdownButtonFormField<int>(
+                                      value: _statementDay,
+                                      decoration: const InputDecoration(
+                                        labelText: 'День выписки',
+                                      ),
+                                      items:
+                                          List.generate(
+                                                28,
+                                                (index) => index + 1,
+                                              )
+                                              .map(
+                                                (day) => DropdownMenuItem(
+                                                  value: day,
+                                                  child: Text(day.toString()),
+                                                ),
+                                              )
+                                              .toList(),
+                                      onChanged: (val) =>
+                                          setState(() => _statementDay = val!),
                                     ),
-                                    items:
-                                        List.generate(28, (index) => index + 1)
-                                            .map(
-                                              (day) => DropdownMenuItem(
-                                                value: day,
-                                                child: Text(day.toString()),
-                                              ),
-                                            )
-                                            .toList(),
-                                    onChanged: (val) =>
-                                        setState(() => _statementDay = val!),
                                   ),
-                                ),
+                                ],
                               ],
                             ),
                             const SizedBox(height: 20),
@@ -329,6 +350,49 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                               onChanged: (val) =>
                                   setState(() => _selectedAmountType = val!),
                             ),
+                            // vvv НОВЫЙ БЛОК ДЛЯ МИНИМАЛЬНОГО ПЛАТЕЖА vvv
+                            RadioListTile<AmountType>(
+                              title: const Text('Минимальный платеж'),
+                              value: AmountType.minimum_payment,
+                              groupValue: _selectedAmountType,
+                              onChanged: (val) =>
+                                  setState(() => _selectedAmountType = val!),
+                            ),
+                            Visibility(
+                              visible:
+                                  _selectedAmountType ==
+                                  AmountType.minimum_payment,
+                              child: Padding(
+                                padding: const EdgeInsets.only(
+                                  left: 16.0,
+                                  right: 16.0,
+                                  bottom: 8.0,
+                                ),
+                                child: TextFormField(
+                                  controller: _percentageController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Процент от суммы долга',
+                                    suffixText: '%',
+                                  ),
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                  validator: (value) {
+                                    if (_selectedAmountType ==
+                                        AmountType.minimum_payment) {
+                                      if (value == null ||
+                                          value.isEmpty ||
+                                          (double.tryParse(value) ?? 0) <= 0) {
+                                        return 'Введите процент больше нуля';
+                                      }
+                                    }
+                                    return null;
+                                  },
+                                ),
+                              ),
+                            ),
+                            // ^^^ КОНЕЦ НОВОГО БЛОКА ^^^
                             const SizedBox(height: 20),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.end,

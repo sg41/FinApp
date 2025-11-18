@@ -123,6 +123,7 @@ class ScheduledPaymentAmountType(enum.Enum):
     FIXED = "fixed"                  # Фиксированная сумма
     TOTAL_DEBIT = "total_debit"      # Все расходы за период
     NET_DEBIT = "net_debit"          # Разница между расходами и доходами
+    MINIMUM_PAYMENT = "minimum_payment" # <-- НОВОЕ ЗНАЧЕНИЕ
 
 class ScheduledPayment(Base):
     __tablename__ = "scheduled_payments"
@@ -130,23 +131,26 @@ class ScheduledPayment(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     
-    # Счет, С которого будет списание
     debtor_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False) 
-    # Счет, НА который будет зачисление
     creditor_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False) 
 
-    payment_day_of_month = Column(Integer, nullable=False) # Число месяца для платежа (1-31)
-    statement_day_of_month = Column(Integer, nullable=False) # Число месяца для выписки
+    payment_day_of_month = Column(Integer, nullable=False)
+    statement_day_of_month = Column(Integer, nullable=False)
 
     amount_type = Column(Enum(ScheduledPaymentAmountType), nullable=False)
-    fixed_amount = Column(Numeric(10, 2), nullable=True) # Только для amount_type = FIXED
-    currency = Column(String(3), nullable=True) # Только для amount_type = FIXED
+    fixed_amount = Column(Numeric(10, 2), nullable=True)
+    currency = Column(String(3), nullable=True)
     
-    is_active = Column(Boolean, default=True, nullable=False) # Можно временно отключать
+    # vvv НОВОЕ ПОЛЕ vvv
+    minimum_payment_percentage = Column(Numeric(5, 2), nullable=True) # Например, 10.50 (%)
+    # ^^^ КОНЕЦ НОВОГО ПОЛЯ ^^^
+
+    is_active = Column(Boolean, default=True, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    # ... (отношения) ...
     user = relationship("User")
     debtor_account = relationship("Account", foreign_keys=[debtor_account_id])
     creditor_account = relationship("Account", foreign_keys=[creditor_account_id])

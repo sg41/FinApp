@@ -24,6 +24,10 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
         return 'Все расходы за период';
       case AmountType.net_debit:
         return 'Долг за период';
+      // vvv НОВЫЙ КЕЙС vvv
+      case AmountType.minimum_payment:
+        return 'Мин. платеж (${payment.minimumPaymentPercentage} % от долга)';
+      // ^^^ КОНЕЦ ^^^
     }
   }
 
