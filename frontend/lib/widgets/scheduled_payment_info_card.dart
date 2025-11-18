@@ -12,14 +12,22 @@ import '../utils/formatting.dart';
 
 class ScheduledPaymentInfoCard extends StatelessWidget {
   final ScheduledPayment payment;
+  // VVV ИЗМЕНЕНИЯ В КОНСТРУКТОРЕ VVV
+  final Account debtorAccount;
   final Account creditorAccount;
+  final bool isDebitView; // <-- Новый флаг
+  // ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^
   final TurnoverData? turnoverForPreview;
   final bool isPreviewLoading;
 
   const ScheduledPaymentInfoCard({
     super.key,
     required this.payment,
+    // VVV ИЗМЕНЕНИЯ В КОНСТРУКТОРЕ VVV
+    required this.debtorAccount,
     required this.creditorAccount,
+    this.isDebitView = false, // <-- Значение по умолчанию
+    // ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^
     this.turnoverForPreview,
     this.isPreviewLoading = false,
   });
@@ -69,14 +77,11 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
     return previewText;
   }
 
-  // --- ГЛАВНОЕ ИЗМЕНЕНИЕ: Обновленный метод для получения текста суммы ---
   /// Возвращает финальный текст для отображения суммы.
   String _getAmountText() {
-    // 1. Получаем базовый описательный текст
     String baseText;
     switch (payment.amountType) {
       case AmountType.fixed:
-        // Для фиксированной суммы расчеты не нужны, возвращаем сразу
         return '${payment.fixedAmount?.toStringAsFixed(2) ?? '0.00'} ${payment.currency ?? ''}';
       case AmountType.total_debit:
         baseText = 'Все расходы за период';
@@ -90,7 +95,6 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
         break;
     }
 
-    // 2. Добавляем информацию о периоде к базовому тексту
     if (payment.periodStartDate != null && payment.periodEndDate != null) {
       final formatter = DateFormat('dd.MM.yy');
       final start = formatter.format(payment.periodStartDate!);
@@ -98,19 +102,15 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
       baseText += ' ($start - $end)';
     }
 
-    // 3. Проверяем состояние загрузки
     if (isPreviewLoading) {
-      return '$baseText\nРасчет...'; // Показываем базовый текст и статус расчета
+      return '$baseText\nРасчет...';
     }
 
-    // 4. Пытаемся получить рассчитанную сумму
     final calculatedAmount = _calculatePreviewAmount();
     if (calculatedAmount != null) {
-      // Объединяем базовый текст и рассчитанную сумму через перенос строки
       return '$baseText\n$calculatedAmount';
     }
 
-    // 5. Если ничего из вышеперечисленного не сработало, возвращаем только базовый текст
     return baseText;
   }
 
@@ -162,8 +162,10 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Удаление'),
-        content: const Text(
-          'Вы уверены, что хотите удалить это автопополнение?',
+        content: Text(
+          isDebitView
+              ? 'Вы уверены, что хотите удалить это автосписание?'
+              : 'Вы уверены, что хотите удалить это автопополнение?',
         ),
         actions: [
           TextButton(
@@ -181,34 +183,35 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
     if (confirmed == true) {
       await provider.deletePayment(payment.id);
       scaffoldMessenger.showSnackBar(
-        const SnackBar(content: Text('Автопополнение удалено')),
+        SnackBar(
+          content: Text(
+            isDebitView ? 'Автосписание удалено' : 'Автопополнение удалено',
+          ),
+        ),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final provider = Provider.of<ScheduledPaymentProvider>(
-      context,
-      listen: false,
-    );
-    final debtorAccount = provider.allUserAccounts.firstWhere(
-      (acc) => acc.id == payment.debtorAccountId,
-      orElse: () => Account(
-        id: 0,
-        apiAccountId: 'N/A',
-        nickname: 'Счет не найден',
-        currency: '',
-        balances: [],
-        bankClientId: '',
-        bankName: '',
-        bankId: 0,
-      ),
-    );
+    // VVV УДАЛЯЕМ ЛОГИКУ ПОИСКА СЧЕТА, ТАК КАК ОН ТЕПЕРЬ ПЕРЕДАЕТСЯ НАПРЯМУЮ VVV
+    // final provider = Provider.of<ScheduledPaymentProvider>(
+    //   context,
+    //   listen: false,
+    // );
+    // final debtorAccount = provider.allUserAccounts.firstWhere( ... );
+    // ^^^ КОНЕЦ УДАЛЕНИЯ ^^^
+
+    // VVV НОВАЯ ЛОГИКА ДЛЯ ЗАГОЛОВКА И ЦВЕТА КАРТОЧКИ VVV
+    final String titleText = isDebitView ? 'Автосписание' : 'Автопополнение';
+    final Color cardColor = isDebitView
+        ? Colors.red.shade50
+        : Colors.amber.shade50;
+    // ^^^ КОНЕЦ НОВОЙ ЛОГИКИ ^^^
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12.0),
-      color: Colors.amber[50],
+      color: cardColor, // <-- Используем новый цвет
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -218,13 +221,15 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'Автопополнение #${payment.id}',
+                    '$titleText #${payment.id}', // <-- Используем новый заголовок
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.edit, color: Colors.black54),
                   onPressed: () {
+                    // Логика редактирования остается прежней: мы всегда редактируем
+                    // "пополнение", передавая счет-получатель.
                     Navigator.of(context).pushNamed(
                       '/scheduled-payment',
                       arguments: {
@@ -243,10 +248,14 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
               ],
             ),
             const Divider(),
+            // VVV НОВАЯ ЛОГИКА ОТОБРАЖЕНИЯ СЧЕТОВ VVV
             _buildInfoRowWithWidget(
-              'Со счета:',
-              _buildDebtorAccountDetails(debtorAccount),
+              isDebitView ? 'На счет:' : 'Со счета:',
+              _buildAccountDetails(
+                isDebitView ? creditorAccount : debtorAccount,
+              ),
             ),
+            // ^^^ КОНЕЦ НОВОЙ ЛОГИКИ ^^^
             _buildInfoRow('Сумма:', _getAmountText()),
             const SizedBox(height: 8),
             _buildInfoRow(
@@ -260,9 +269,10 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
     );
   }
 
-  /// Вспомогательный виджет для отображения полной информации о счете-доноре.
-  Widget _buildDebtorAccountDetails(Account debtorAccount) {
-    final balance = debtorAccount.availableBalance;
+  /// Вспомогательный виджет для отображения полной информации о счете.
+  /// Теперь он универсален.
+  Widget _buildAccountDetails(Account account) {
+    final balance = account.availableBalance;
     final balanceText = balance != null
         ? (num.tryParse(balance.amount) ?? 0.0).toFormattedCurrency(
             balance.currency,
@@ -273,13 +283,13 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Text(
-          debtorAccount.nickname,
+          account.nickname,
           textAlign: TextAlign.end,
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 4),
         Text(
-          '${debtorAccount.bankName.toUpperCase()} | ${debtorAccount.bankClientId}\n$balanceText',
+          '${account.bankName.toUpperCase()} | ${account.bankClientId}\n$balanceText',
           textAlign: TextAlign.end,
           style: TextStyle(fontSize: 12, color: Colors.grey[700], height: 1.4),
         ),

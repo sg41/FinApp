@@ -1,10 +1,10 @@
 // lib/providers/scheduled_payment_provider.dart
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart'; // Потребуется для дат
+import 'package:intl/intl.dart';
 import '../models/account.dart';
 import '../models/scheduled_payment.dart';
-import '../models/turnover_data.dart'; // <-- НОВЫЙ ИМПОРТ
+import '../models/turnover_data.dart';
 import '../services/api_service.dart';
 import 'accounts_provider.dart';
 import 'auth_provider.dart';
@@ -28,6 +28,15 @@ class ScheduledPaymentProvider with ChangeNotifier {
         .toList();
   }
 
+  // VVV НОВЫЙ МЕТОД VVV
+  /// Возвращает список автоплатежей, где указанный счет является отправителем.
+  List<ScheduledPayment> getDebitsForAccount(int debtorAccountId) {
+    return _allPayments
+        .where((p) => p.debtorAccountId == debtorAccountId)
+        .toList();
+  }
+  // ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^
+
   Future<void> fetchData(AccountsProvider accountsProvider) async {
     if (authProvider == null || !authProvider!.isAuthenticated) return;
     _isLoading = true;
@@ -50,14 +59,12 @@ class ScheduledPaymentProvider with ChangeNotifier {
     }
   }
 
-  // --- НОВЫЙ МЕТОД ДЛЯ ПОЛУЧЕНИЯ ДАННЫХ ДЛЯ ПРЕДПРОСМОТРА ---
   Future<TurnoverData?> fetchTurnoverForPeriod({
     required int accountId,
     required DateTimeRange period,
   }) async {
     if (authProvider == null || !authProvider!.isAuthenticated) return null;
 
-    // Находим полный объект счета, чтобы получить bankId и apiAccountId
     final account = _allUserAccounts.firstWhere(
       (acc) => acc.id == accountId,
       orElse: () {
@@ -77,11 +84,9 @@ class ScheduledPaymentProvider with ChangeNotifier {
       return turnover;
     } catch (e) {
       print("Error fetching turnover for preview: $e");
-      // Возвращаем null в случае ошибки, чтобы UI мог это обработать
       return null;
     }
   }
-  // --- КОНЕЦ НОВОГО МЕТОДА ---
 
   Future<void> savePayment({
     required Map<String, dynamic> data,
