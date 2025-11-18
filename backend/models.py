@@ -118,12 +118,19 @@ class Payment(Base):
     debtor_account = relationship("Account")
     consent = relationship("PaymentConsent", back_populates="payments")
 
-# Добавляем Enum для типа суммы
+# vvv НОВЫЙ ENUM ДЛЯ ПОВТОРЕНИЙ vvv
+class RecurrenceType(enum.Enum):
+    DAYS = "days"
+    WEEKS = "weeks"
+    MONTHS = "months"
+    YEARS = "years"
+# ^^^ КОНЕЦ ^^^
+
 class ScheduledPaymentAmountType(enum.Enum):
-    FIXED = "fixed"                  # Фиксированная сумма
-    TOTAL_DEBIT = "total_debit"      # Все расходы за период
-    NET_DEBIT = "net_debit"          # Разница между расходами и доходами
-    MINIMUM_PAYMENT = "minimum_payment" # <-- НОВОЕ ЗНАЧЕНИЕ
+    FIXED = "fixed"
+    TOTAL_DEBIT = "total_debit"
+    NET_DEBIT = "net_debit"
+    MINIMUM_PAYMENT = "minimum_payment"
 
 class ScheduledPayment(Base):
     __tablename__ = "scheduled_payments"
@@ -134,23 +141,30 @@ class ScheduledPayment(Base):
     debtor_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False) 
     creditor_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False) 
 
-    payment_day_of_month = Column(Integer, nullable=False)
-    statement_day_of_month = Column(Integer, nullable=False)
+    # --- vvv БЛОК ИЗМЕНЕНИЙ vvv ---
+    # УДАЛЯЕМ СТАРЫЕ ПОЛЯ
+    # payment_day_of_month = Column(Integer, nullable=False)
+    # statement_day_of_month = Column(Integer, nullable=False)
+    
+    # ДОБАВЛЯЕМ НОВЫЕ ПОЛЯ
+    next_payment_date = Column(Date, nullable=False, index=True) # Дата СЛЕДУЮЩЕГО платежа
+    period_start_date = Column(Date, nullable=True) # Начало периода для расчета (опционально)
+    period_end_date = Column(Date, nullable=True)   # Конец периода для расчета (опционально)
+
+    recurrence_type = Column(Enum(RecurrenceType), nullable=True) # Тип повторения (дни, недели...)
+    recurrence_interval = Column(Integer, nullable=True) # Интервал (каждые X дней/недель...)
+    # --- ^^^ КОНЕЦ БЛОКА ИЗМЕНЕНИЙ ^^^ ---
 
     amount_type = Column(Enum(ScheduledPaymentAmountType), nullable=False)
     fixed_amount = Column(Numeric(10, 2), nullable=True)
     currency = Column(String(3), nullable=True)
+    minimum_payment_percentage = Column(Numeric(5, 2), nullable=True)
     
-    # vvv НОВОЕ ПОЛЕ vvv
-    minimum_payment_percentage = Column(Numeric(5, 2), nullable=True) # Например, 10.50 (%)
-    # ^^^ КОНЕЦ НОВОГО ПОЛЯ ^^^
-
     is_active = Column(Boolean, default=True, nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    # ... (отношения) ...
     user = relationship("User")
     debtor_account = relationship("Account", foreign_keys=[debtor_account_id])
     creditor_account = relationship("Account", foreign_keys=[creditor_account_id])

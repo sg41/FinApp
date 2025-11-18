@@ -2,6 +2,7 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../models/account.dart';
@@ -20,30 +21,38 @@ class ScheduledPaymentScreen extends StatefulWidget {
 class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
   final _formKey = GlobalKey<FormState>();
   final _fixedAmountController = TextEditingController();
-  // vvv НОВЫЙ КОНТРОЛЛЕР vvv
   final _percentageController = TextEditingController();
-  // ^^^ КОНЕЦ ^^^
+  final _recurrenceIntervalController = TextEditingController(text: '1');
 
   Account? _creditorAccount;
   ScheduledPayment? _existingPayment;
 
   AmountType _selectedAmountType = AmountType.fixed;
   int? _selectedDebtorAccountId;
-  int _paymentDay = 15;
-  int _statementDay = 25;
+  DateTime _nextPaymentDate = DateTime.now();
+  DateTimeRange? _period;
+  RecurrenceType? _selectedRecurrenceType;
+  bool _isRecurring = false;
 
+  bool _isInit = true;
   bool _isLoading = true;
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _creditorAccount =
-            ModalRoute.of(context)!.settings.arguments as Account;
-        _fetchInitialData();
-      }
-    });
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_isInit) {
+      final args =
+          ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+      _creditorAccount = args['creditorAccount'];
+      _existingPayment = args['existingPayment'];
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _fetchInitialData();
+        }
+      });
+    }
+    _isInit = false;
   }
 
   Future<void> _fetchInitialData() async {
@@ -55,27 +64,38 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
       context,
       listen: false,
     );
+
     await provider.fetchData(accountsProvider);
 
     if (mounted) {
       setState(() {
-        _existingPayment = provider.getPaymentForAccount(_creditorAccount!.id);
         if (_existingPayment != null) {
           _selectedAmountType = _existingPayment!.amountType;
           _selectedDebtorAccountId = _existingPayment!.debtorAccountId;
-          _paymentDay = _existingPayment!.paymentDayOfMonth;
-          _statementDay = _existingPayment!.statementDayOfMonth;
+          _nextPaymentDate = _existingPayment!.nextPaymentDate;
+          if (_existingPayment!.periodStartDate != null &&
+              _existingPayment!.periodEndDate != null) {
+            _period = DateTimeRange(
+              start: _existingPayment!.periodStartDate!,
+              end: _existingPayment!.periodEndDate!,
+            );
+          }
+          if (_existingPayment!.recurrenceType != null) {
+            _isRecurring = true;
+            _selectedRecurrenceType = _existingPayment!.recurrenceType;
+            _recurrenceIntervalController.text = _existingPayment!
+                .recurrenceInterval
+                .toString();
+          }
           if (_existingPayment!.fixedAmount != null) {
             _fixedAmountController.text = _existingPayment!.fixedAmount
                 .toString();
           }
-          // vvv ЗАПОЛНЯЕМ НОВОЕ ПОЛЕ vvv
           if (_existingPayment!.minimumPaymentPercentage != null) {
             _percentageController.text = _existingPayment!
                 .minimumPaymentPercentage
                 .toString();
           }
-          // ^^^ КОНЕЦ ^^^
         }
         _isLoading = false;
       });
@@ -85,8 +105,37 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
   @override
   void dispose() {
     _fixedAmountController.dispose();
-    _percentageController.dispose(); // <-- НЕ ЗАБЫТЬ
+    _percentageController.dispose();
+    _recurrenceIntervalController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: _nextPaymentDate,
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime(2100),
+    );
+    if (pickedDate != null && pickedDate != _nextPaymentDate) {
+      setState(() {
+        _nextPaymentDate = pickedDate;
+      });
+    }
+  }
+
+  Future<void> _pickDateRange() async {
+    final pickedRange = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      initialDateRange: _period,
+    );
+    if (pickedRange != null && pickedRange != _period) {
+      setState(() {
+        _period = pickedRange;
+      });
+    }
   }
 
   Future<void> _submitForm() async {
@@ -101,31 +150,42 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
       context,
       listen: false,
     );
+    String? formatDate(DateTime? dt) => dt?.toIso8601String().substring(0, 10);
 
     final Map<String, dynamic> data = {
       'creditor_account_id': _creditorAccount!.id,
       'debtor_account_id': _selectedDebtorAccountId,
-      'payment_day_of_month': _paymentDay,
-      'statement_day_of_month': _statementDay,
+      'next_payment_date': formatDate(_nextPaymentDate),
+      'period_start_date': _selectedAmountType != AmountType.fixed
+          ? formatDate(_period?.start)
+          : null,
+      'period_end_date': _selectedAmountType != AmountType.fixed
+          ? formatDate(_period?.end)
+          : null,
+      'recurrence_type': _isRecurring
+          ? describeEnum(_selectedRecurrenceType!)
+          : null,
+      'recurrence_interval': _isRecurring
+          ? int.tryParse(_recurrenceIntervalController.text)
+          : null,
       'amount_type': describeEnum(_selectedAmountType),
       'fixed_amount': _selectedAmountType == AmountType.fixed
           ? double.tryParse(_fixedAmountController.text)
           : null,
-      // vvv ДОБАВЛЯЕМ НОВОЕ ПОЛЕ В ЗАПРОС vvv
       'minimum_payment_percentage':
           _selectedAmountType == AmountType.minimum_payment
           ? double.tryParse(_percentageController.text)
           : null,
-      // ^^^ КОНЕЦ ^^^
       'is_active': true,
     };
 
     try {
-      await provider.savePayment(data);
+      await provider.savePayment(data: data, paymentId: _existingPayment?.id);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Настройки автоплатежа сохранены!'),
+          // --- ИЗМЕНЕНИЕ 4 ---
+          content: Text('Настройки автопополнения сохранены!'),
           backgroundColor: Colors.green,
         ),
       );
@@ -142,11 +202,10 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final appBarTitle = _isLoading
-        ? 'Загрузка...'
-        : (_existingPayment == null
-              ? 'Настройка автопополнения счета'
-              : 'Изменить автоплатеж');
+    // --- ИЗМЕНЕНИЕ 5 ---
+    final appBarTitle = _existingPayment == null
+        ? 'Новое автопополнение'
+        : 'Изменить автопополнение';
 
     return Scaffold(
       appBar: AppBar(title: Text(appBarTitle)),
@@ -156,18 +215,18 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
               padding: const EdgeInsets.all(16.0),
               child: Form(
                 key: _formKey,
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Consumer<ScheduledPaymentProvider>(
-                      builder: (context, provider, child) {
-                        final availableAccounts = provider.allUserAccounts
-                            .where((acc) => acc.id != _creditorAccount?.id)
-                            .toList();
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            DropdownButtonFormField<int>(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Consumer<ScheduledPaymentProvider>(
+                          builder: (context, provider, child) {
+                            final availableAccounts = provider.allUserAccounts
+                                .where((acc) => acc.id != _creditorAccount?.id)
+                                .toList();
+                            return DropdownButtonFormField<int>(
                               value: _selectedDebtorAccountId,
                               decoration: const InputDecoration(
                                 labelText: 'Переводить со счета',
@@ -190,7 +249,6 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                                     ? (num.tryParse(balance.amount) ?? 0.0)
                                           .toFormattedCurrency(balance.currency)
                                     : 'Баланс н/д';
-
                                 return DropdownMenuItem<int>(
                                   value: account.id,
                                   child: Column(
@@ -203,24 +261,12 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                                         style: const TextStyle(fontSize: 16),
                                         overflow: TextOverflow.ellipsis,
                                       ),
-                                      Text.rich(
-                                        TextSpan(
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            color: Colors.grey.shade700,
-                                          ),
-                                          children: [
-                                            TextSpan(
-                                              text:
-                                                  '${account.bankClientId}     ',
-                                            ),
-                                            TextSpan(
-                                              text: balanceText,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ],
+                                      Text(
+                                        balanceText,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.grey.shade700,
+                                          fontWeight: FontWeight.bold,
                                         ),
                                       ),
                                     ],
@@ -234,67 +280,122 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                               },
                               validator: (value) =>
                                   value == null ? 'Выберите счет' : null,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                              ),
+                              child: Text(
+                                'Дата и повторения',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
                             ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: DropdownButtonFormField<int>(
-                                    value: _paymentDay,
-                                    decoration: const InputDecoration(
-                                      labelText: 'День платежа',
-                                    ),
-                                    items:
-                                        List.generate(28, (index) => index + 1)
-                                            .map(
-                                              (day) => DropdownMenuItem(
-                                                value: day,
-                                                child: Text(day.toString()),
-                                              ),
-                                            )
-                                            .toList(),
-                                    onChanged: (val) =>
-                                        setState(() => _paymentDay = val!),
-                                  ),
+                            const Divider(),
+                            ListTile(
+                              title: const Text('Дата следующего платежа'),
+                              subtitle: Text(
+                                DateFormat(
+                                  'dd MMMM yyyy',
+                                ).format(_nextPaymentDate),
+                              ),
+                              trailing: const Icon(Icons.calendar_today),
+                              onTap: _pickDate,
+                            ),
+                            SwitchListTile(
+                              title: const Text('Повторять платеж'),
+                              value: _isRecurring,
+                              onChanged: (val) =>
+                                  setState(() => _isRecurring = val),
+                            ),
+                            if (_isRecurring)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16.0,
+                                  0,
+                                  16.0,
+                                  16.0,
                                 ),
-                                // --- ОБНОВЛЕННОЕ УСЛОВИЕ ---
-                                if (_selectedAmountType ==
-                                        AmountType.total_debit ||
-                                    _selectedAmountType ==
-                                        AmountType.net_debit ||
-                                    _selectedAmountType ==
-                                        AmountType.minimum_payment) ...[
-                                  const SizedBox(width: 16),
-                                  Expanded(
-                                    child: DropdownButtonFormField<int>(
-                                      value: _statementDay,
-                                      decoration: const InputDecoration(
-                                        labelText: 'День выписки',
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      flex: 2,
+                                      child: TextFormField(
+                                        controller:
+                                            _recurrenceIntervalController,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Каждые',
+                                        ),
+                                        keyboardType: TextInputType.number,
+                                        validator: (v) =>
+                                            (int.tryParse(v ?? '0') ?? 0) < 1
+                                            ? 'Введите > 0'
+                                            : null,
                                       ),
-                                      items:
-                                          List.generate(
-                                                28,
-                                                (index) => index + 1,
-                                              )
-                                              .map(
-                                                (day) => DropdownMenuItem(
-                                                  value: day,
-                                                  child: Text(day.toString()),
-                                                ),
-                                              )
-                                              .toList(),
-                                      onChanged: (val) =>
-                                          setState(() => _statementDay = val!),
                                     ),
-                                  ),
-                                ],
-                              ],
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      flex: 3,
+                                      child:
+                                          DropdownButtonFormField<
+                                            RecurrenceType
+                                          >(
+                                            value: _selectedRecurrenceType,
+                                            hint: const Text('Период'),
+                                            items: RecurrenceType.values
+                                                .map(
+                                                  (type) => DropdownMenuItem(
+                                                    value: type,
+                                                    child: Text(
+                                                      describeEnum(type),
+                                                    ),
+                                                  ),
+                                                )
+                                                .toList(),
+                                            onChanged: (val) => setState(
+                                              () =>
+                                                  _selectedRecurrenceType = val,
+                                            ),
+                                            validator: (v) =>
+                                                v == null ? 'Выберите' : null,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16.0,
+                              ),
+                              child: Text(
+                                'Сумма платежа',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
                             ),
-                            const SizedBox(height: 20),
-                            const Text(
-                              'Сумма платежа:',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
+                            const Divider(),
                             RadioListTile<AmountType>(
                               title: const Text('Фиксированная сумма'),
                               value: AmountType.fixed,
@@ -302,13 +403,13 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                               onChanged: (val) =>
                                   setState(() => _selectedAmountType = val!),
                             ),
-                            Visibility(
-                              visible: _selectedAmountType == AmountType.fixed,
-                              child: Padding(
-                                padding: const EdgeInsets.only(
-                                  left: 16.0,
-                                  right: 16.0,
-                                  bottom: 8.0,
+                            if (_selectedAmountType == AmountType.fixed)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  0,
+                                  16,
+                                  16,
                                 ),
                                 child: TextFormField(
                                   controller: _fixedAmountController,
@@ -321,19 +422,15 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                                         decimal: true,
                                       ),
                                   validator: (value) {
-                                    if (_selectedAmountType ==
-                                        AmountType.fixed) {
-                                      if (value == null ||
-                                          value.isEmpty ||
-                                          (double.tryParse(value) ?? 0) <= 0) {
-                                        return 'Введите сумму больше нуля';
-                                      }
+                                    if (value == null ||
+                                        value.isEmpty ||
+                                        (double.tryParse(value) ?? 0) <= 0) {
+                                      return 'Введите сумму больше нуля';
                                     }
                                     return null;
                                   },
                                 ),
                               ),
-                            ),
                             RadioListTile<AmountType>(
                               title: const Text('Все расходы за период'),
                               value: AmountType.total_debit,
@@ -350,7 +447,6 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                               onChanged: (val) =>
                                   setState(() => _selectedAmountType = val!),
                             ),
-                            // vvv НОВЫЙ БЛОК ДЛЯ МИНИМАЛЬНОГО ПЛАТЕЖА vvv
                             RadioListTile<AmountType>(
                               title: const Text('Минимальный платеж'),
                               value: AmountType.minimum_payment,
@@ -358,15 +454,14 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                               onChanged: (val) =>
                                   setState(() => _selectedAmountType = val!),
                             ),
-                            Visibility(
-                              visible:
-                                  _selectedAmountType ==
-                                  AmountType.minimum_payment,
-                              child: Padding(
-                                padding: const EdgeInsets.only(
-                                  left: 16.0,
-                                  right: 16.0,
-                                  bottom: 8.0,
+                            if (_selectedAmountType ==
+                                AmountType.minimum_payment)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  0,
+                                  16,
+                                  16,
                                 ),
                                 child: TextFormField(
                                   controller: _percentageController,
@@ -379,39 +474,41 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                                         decimal: true,
                                       ),
                                   validator: (value) {
-                                    if (_selectedAmountType ==
-                                        AmountType.minimum_payment) {
-                                      if (value == null ||
-                                          value.isEmpty ||
-                                          (double.tryParse(value) ?? 0) <= 0) {
-                                        return 'Введите процент больше нуля';
-                                      }
+                                    if (value == null ||
+                                        value.isEmpty ||
+                                        (double.tryParse(value) ?? 0) <= 0) {
+                                      return 'Введите процент больше нуля';
                                     }
                                     return null;
                                   },
                                 ),
                               ),
-                            ),
-                            // ^^^ КОНЕЦ НОВОГО БЛОКА ^^^
-                            const SizedBox(height: 20),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                ElevatedButton(
-                                  onPressed: _submitForm,
-                                  child: Text(
-                                    _existingPayment == null
-                                        ? 'Создать'
-                                        : 'Сохранить',
-                                  ),
-                                ),
-                              ],
-                            ),
+                            if (_selectedAmountType != AmountType.fixed)
+                              ListTile(
+                                title: const Text('Период для расчета'),
+                                subtitle: _period == null
+                                    ? const Text('Не выбран')
+                                    : Text(
+                                        '${DateFormat('dd.MM.yy').format(_period!.start)} - ${DateFormat('dd.MM.yy').format(_period!.end)}',
+                                      ),
+                                trailing: const Icon(Icons.date_range),
+                                onTap: _pickDateRange,
+                              ),
                           ],
-                        );
-                      },
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 24),
+                    ElevatedButton(
+                      onPressed: _submitForm,
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: Text(
+                        _existingPayment == null ? 'Создать' : 'Сохранить',
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),

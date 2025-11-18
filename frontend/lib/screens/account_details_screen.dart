@@ -26,9 +26,8 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
     _fetchData();
   }
 
-  Future<void> _fetchData() async {
-    // Используем addPostFrameCallback, чтобы гарантировать, что context доступен
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+  Future<void> _fetchData() {
+    return Future.microtask(() {
       if (!mounted) return;
       final scheduledPaymentProvider = Provider.of<ScheduledPaymentProvider>(
         context,
@@ -38,7 +37,6 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
         context,
         listen: false,
       );
-      // Этот метод загрузит и существующие автоплатежи, и список всех счетов
       scheduledPaymentProvider.fetchData(accountsProvider);
     });
   }
@@ -65,7 +63,7 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
       lastDate: DateTime(2100),
     );
 
-    if (newRange == null) return; // Пользователь нажал "Отмена"
+    if (newRange == null) return;
 
     provider.updateAndRefresh(
       statementDate: newRange.start,
@@ -75,7 +73,6 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Используем Consumer2 для подписки на два провайдера одновременно
     return Consumer2<AccountDetailsProvider, ScheduledPaymentProvider>(
       builder: (context, detailsProvider, scheduledProvider, child) {
         if (detailsProvider.account == null) {
@@ -85,7 +82,7 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
         }
 
         final account = detailsProvider.account!;
-        final existingPayment = scheduledProvider.getPaymentForAccount(
+        final paymentsForAccount = scheduledProvider.getPaymentsForAccount(
           account.id,
         );
 
@@ -93,53 +90,35 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
           canPop: false,
           onPopInvoked: (bool didPop) {
             if (didPop) return;
-            // Возвращаем true, если данные по оборотам были изменены
             Navigator.of(context).pop(detailsProvider.dataChanged);
           },
           child: Scaffold(
             appBar: AppBar(title: Text(account.nickname)),
+            floatingActionButton: FloatingActionButton.extended(
+              onPressed: () async {
+                final result = await Navigator.of(context).pushNamed(
+                  '/scheduled-payment',
+                  arguments: {
+                    'creditorAccount': account,
+                    'existingPayment': null,
+                  },
+                );
+                if (result == true && mounted) {
+                  _fetchData();
+                }
+              },
+              icon: const Icon(Icons.add),
+              label: const Text('Новое автопополнение'),
+            ),
             body: RefreshIndicator(
               onRefresh: _fetchData,
               child: ListView(
-                padding: const EdgeInsets.all(16.0),
+                padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 80.0),
                 children: [
                   _buildInfoCard(context, account),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 24),
 
-                  // --- ОСНОВНАЯ ЛОГИКА ОТОБРАЖЕНИЯ АВТОПЛАТЕЖА ---
-                  if (scheduledProvider.isLoading)
-                    const Center(child: CircularProgressIndicator())
-                  else if (existingPayment != null)
-                    // Если автоплатеж есть, показываем инфо-карточку
-                    ScheduledPaymentInfoCard(
-                      payment: existingPayment,
-                      creditorAccount: account,
-                    )
-                  else
-                    // Если автоплатежа нет, показываем кнопку добавления
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.add_circle_outline),
-                      label: const Text(
-                        'Настроить автопополнение данного счета',
-                      ), // <-- ИЗМЕНЕННЫЙ ТЕКСТ
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        textStyle: const TextStyle(fontSize: 16),
-                      ),
-                      onPressed: () async {
-                        final result = await Navigator.of(context).pushNamed(
-                          '/scheduled-payment',
-                          arguments: account, // Передаем текущий счет
-                        );
-                        // Если с экрана создания/редактирования вернулся true, обновляем данные
-                        if (result == true && mounted) {
-                          _fetchData();
-                        }
-                      },
-                    ),
-
-                  const SizedBox(height: 16),
-
+                  // --- НАЧАЛО БЛОКА "ОБОРОТЫ ЗА ПЕРИОД" (ПЕРЕМЕЩЕН ВВЕРХ) ---
                   if (detailsProvider.isLoading)
                     const Center(child: CircularProgressIndicator())
                   else
@@ -164,6 +143,35 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
                         account,
                       ),
                     ),
+
+                  // --- КОНЕЦ БЛОКА "ОБОРОТЫ ЗА ПЕРИОД" ---
+                  const SizedBox(height: 24),
+
+                  // --- НАЧАЛО БЛОКА "АВТОПОПОЛНЕНИЯ" (ПЕРЕМЕЩЕН ВНИЗ) ---
+                  Text(
+                    'Настроенные автопополнения',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const Divider(),
+                  if (scheduledProvider.isLoading)
+                    const Center(child: CircularProgressIndicator())
+                  else if (paymentsForAccount.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24.0),
+                      child: Center(
+                        child: Text(
+                          'Автопополнения для этого счета не настроены.',
+                        ),
+                      ),
+                    )
+                  else
+                    ...paymentsForAccount.map((payment) {
+                      return ScheduledPaymentInfoCard(
+                        payment: payment,
+                        creditorAccount: account,
+                      );
+                    }).toList(),
+                  // --- КОНЕЦ БЛОКА "АВТОПОПОЛНЕНИЯ" ---
                 ],
               ),
             ),
@@ -172,8 +180,6 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
       },
     );
   }
-
-  // --- Вспомогательные методы для отрисовки UI ---
 
   List<Widget> _buildBalanceRows(Account account) {
     final List<Widget> widgets = [];
@@ -185,7 +191,7 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
         (b) => b.type == 'InterimAvailable',
       );
     } catch (e) {
-      /* не найден */
+      /* not found */
     }
 
     try {
@@ -193,7 +199,7 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
         (b) => b.type == 'InterimBooked',
       );
     } catch (e) {
-      /* не найден */
+      /* not found */
     }
 
     if (availableBalance == null) {

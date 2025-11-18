@@ -11,8 +11,8 @@ class ScheduledPaymentProvider with ChangeNotifier {
   final ApiService _apiService = ApiService();
   final AuthProvider? authProvider;
 
-  // Храним платежи в карте для быстрого доступа по ID счета-получателя
-  Map<int, ScheduledPayment> _paymentsByCreditorAccount = {};
+  // --- ИЗМЕНЕНИЕ 1: Храним все платежи в одном списке, а не в карте ---
+  List<ScheduledPayment> _allPayments = [];
   List<Account> _allUserAccounts = [];
   bool _isLoading = false;
 
@@ -21,9 +21,11 @@ class ScheduledPaymentProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   List<Account> get allUserAccounts => _allUserAccounts;
 
-  // Метод для получения настроек автоплатежа для конкретного счета
-  ScheduledPayment? getPaymentForAccount(int creditorAccountId) {
-    return _paymentsByCreditorAccount[creditorAccountId];
+  // --- ИЗМЕНЕНИЕ 2: Метод для получения ВСЕХ автоплатежей для конкретного счета ---
+  List<ScheduledPayment> getPaymentsForAccount(int creditorAccountId) {
+    return _allPayments
+        .where((p) => p.creditorAccountId == creditorAccountId)
+        .toList();
   }
 
   // Загружаем все данные, необходимые для работы
@@ -33,14 +35,11 @@ class ScheduledPaymentProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      // Загружаем все настроенные автоплатежи
-      final payments = await _apiService.getScheduledPayments(
+      // --- ИЗМЕНЕНИЕ 3: Просто загружаем все настроенные автоплатежи в список ---
+      _allPayments = await _apiService.getScheduledPayments(
         authProvider!.token!,
         authProvider!.userId!,
       );
-      _paymentsByCreditorAccount = {
-        for (var p in payments) p.creditorAccountId: p,
-      };
 
       // Получаем список всех счетов пользователя из другого провайдера
       _allUserAccounts = accountsProvider.banksWithAccounts
@@ -54,22 +53,23 @@ class ScheduledPaymentProvider with ChangeNotifier {
     }
   }
 
-  // Универсальный метод для сохранения (создания или обновления)
-  Future<void> savePayment(Map<String, dynamic> data) async {
+  // --- ИЗМЕНЕНИЕ 4: Универсальный метод для сохранения (создания ИЛИ обновления) ---
+  Future<void> savePayment({
+    required Map<String, dynamic> data,
+    int? paymentId, // Необязательный ID для режима обновления
+  }) async {
     if (authProvider == null || !authProvider!.isAuthenticated) return;
 
-    final existingPayment = getPaymentForAccount(data['creditor_account_id']);
-
-    if (existingPayment != null) {
-      // Обновляем существующий
+    if (paymentId != null) {
+      // Обновляем существующий платеж
       await _apiService.updateScheduledPayment(
         authProvider!.token!,
         authProvider!.userId!,
-        existingPayment.id,
+        paymentId,
         data,
       );
     } else {
-      // Создаем новый
+      // Создаем новый платеж
       await _apiService.createScheduledPayment(
         authProvider!.token!,
         authProvider!.userId!,
@@ -77,11 +77,12 @@ class ScheduledPaymentProvider with ChangeNotifier {
       );
     }
     // После сохранения перезагружаем данные, чтобы UI обновился
+    // Создаем временный AccountsProvider, так как у нас нет прямого доступа к нему здесь
     final tempAccountsProvider = AccountsProvider(authProvider);
     await fetchData(tempAccountsProvider);
   }
 
-  // Метод для удаления
+  // Метод для удаления (остается без изменений)
   Future<void> deletePayment(int paymentId) async {
     if (authProvider == null || !authProvider!.isAuthenticated) return;
     await _apiService.deleteScheduledPayment(
@@ -89,6 +90,7 @@ class ScheduledPaymentProvider with ChangeNotifier {
       authProvider!.userId!,
       paymentId,
     );
+    // Перезагружаем данные после удаления
     final tempAccountsProvider = AccountsProvider(authProvider);
     await fetchData(tempAccountsProvider);
   }

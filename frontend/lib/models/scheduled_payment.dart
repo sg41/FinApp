@@ -2,26 +2,29 @@
 
 import 'package:flutter/foundation.dart';
 
-// Enum для типов сумм
-enum AmountType {
-  fixed,
-  total_debit,
-  net_debit,
-  minimum_payment,
-} // <-- НОВОЕ ЗНАЧЕНИЕ
+enum AmountType { fixed, total_debit, net_debit, minimum_payment }
+
+// vvv НОВЫЙ ENUM vvv
+enum RecurrenceType { days, weeks, months, years }
+// ^^^ КОНЕЦ ^^^
 
 class ScheduledPayment {
   final int id;
   final int userId;
   final int debtorAccountId;
   final int creditorAccountId;
-  final int paymentDayOfMonth;
-  final int statementDayOfMonth;
+
+  // --- vvv БЛОК ИЗМЕНЕНИЙ vvv ---
+  final DateTime nextPaymentDate;
+  final DateTime? periodStartDate;
+  final DateTime? periodEndDate;
+  final RecurrenceType? recurrenceType;
+  final int? recurrenceInterval;
+  // --- ^^^ КОНЕЦ БЛОКА ИЗМЕНЕНИЙ ^^^ ---
+
   final AmountType amountType;
   final double? fixedAmount;
-  // vvv НОВОЕ ПОЛЕ vvv
   final double? minimumPaymentPercentage;
-  // ^^^ КОНЕЦ НОВОГО ПОЛЯ ^^^
   final String? currency;
   final bool isActive;
 
@@ -30,38 +33,61 @@ class ScheduledPayment {
     required this.userId,
     required this.debtorAccountId,
     required this.creditorAccountId,
-    required this.paymentDayOfMonth,
-    required this.statementDayOfMonth,
+    // --- vvv ОБНОВЛЕНИЕ КОНСТРУКТОРА vvv ---
+    required this.nextPaymentDate,
+    this.periodStartDate,
+    this.periodEndDate,
+    this.recurrenceType,
+    this.recurrenceInterval,
+    // --- ^^^ КОНЕЦ ОБНОВЛЕНИЯ ^^^ ---
     required this.amountType,
     this.fixedAmount,
-    // vvv ОБНОВЛЕНИЕ КОНСТРУКТОРА vvv
     this.minimumPaymentPercentage,
-    // ^^^ КОНЕЦ ОБНОВЛЕНИЯ ^^^
     this.currency,
     required this.isActive,
   });
 
-  // Фабричный конструктор для создания экземпляра из JSON
   factory ScheduledPayment.fromJson(Map<String, dynamic> json) {
+    // Вспомогательная функция для безопасного парсинга Enum
+    T? _parseEnum<T>(List<T> enumValues, String? value) {
+      if (value == null) return null;
+      try {
+        return enumValues.firstWhere((e) => describeEnum(e!) == value);
+      } catch (e) {
+        return null;
+      }
+    }
+
     return ScheduledPayment(
       id: json['id'],
       userId: json['user_id'],
       debtorAccountId: json['debtor_account_id'],
       creditorAccountId: json['creditor_account_id'],
-      paymentDayOfMonth: json['payment_day_of_month'],
-      statementDayOfMonth: json['statement_day_of_month'],
-      amountType: AmountType.values.firstWhere(
-        (e) => describeEnum(e) == json['amount_type'],
-        orElse: () => AmountType.fixed,
+
+      // --- vvv ПАРСИНГ НОВЫХ ПОЛЕЙ vvv ---
+      nextPaymentDate: DateTime.parse(json['next_payment_date']),
+      periodStartDate: json['period_start_date'] != null
+          ? DateTime.parse(json['period_start_date'])
+          : null,
+      periodEndDate: json['period_end_date'] != null
+          ? DateTime.parse(json['period_end_date'])
+          : null,
+      recurrenceType: _parseEnum(
+        RecurrenceType.values,
+        json['recurrence_type'],
       ),
+      recurrenceInterval: json['recurrence_interval'],
+
+      // --- ^^^ КОНЕЦ ПАРСИНГА ^^^ ---
+      amountType:
+          _parseEnum(AmountType.values, json['amount_type']) ??
+          AmountType.fixed,
       fixedAmount: json['fixed_amount'] != null
           ? double.tryParse(json['fixed_amount'].toString())
           : null,
-      // vvv ПАРСИНГ НОВОГО ПОЛЯ vvv
       minimumPaymentPercentage: json['minimum_payment_percentage'] != null
           ? double.tryParse(json['minimum_payment_percentage'].toString())
           : null,
-      // ^^^ КОНЕЦ ПАРСИНГА ^^^
       currency: json['currency'],
       isActive: json['is_active'],
     );

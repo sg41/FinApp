@@ -1,14 +1,16 @@
 // lib/widgets/scheduled_payment_info_card.dart
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/scheduled_payment.dart';
 import '../providers/scheduled_payment_provider.dart';
-import '../models/account.dart'; // Для навигации
+import '../models/account.dart';
 
 class ScheduledPaymentInfoCard extends StatelessWidget {
   final ScheduledPayment payment;
-  final Account creditorAccount; // Счет, для которого настроен платеж
+  final Account creditorAccount;
 
   const ScheduledPaymentInfoCard({
     super.key,
@@ -24,29 +26,56 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
         return 'Все расходы за период';
       case AmountType.net_debit:
         return 'Долг за период';
-      // vvv НОВЫЙ КЕЙС vvv
       case AmountType.minimum_payment:
         return 'Мин. платеж (${payment.minimumPaymentPercentage} % от долга)';
-      // ^^^ КОНЕЦ ^^^
     }
   }
 
+  String _getRecurrenceText() {
+    if (payment.recurrenceType == null || payment.recurrenceInterval == null) {
+      return 'Одноразовый платеж';
+    }
+    String periodText;
+    switch (payment.recurrenceType!) {
+      case RecurrenceType.days:
+        periodText = 'день';
+        break;
+      case RecurrenceType.weeks:
+        periodText = 'неделю';
+        break;
+      case RecurrenceType.months:
+        periodText = 'месяц';
+        break;
+      case RecurrenceType.years:
+        periodText = 'год';
+        break;
+    }
+    return 'Каждые ${payment.recurrenceInterval} $periodText';
+  }
+
   Future<void> _deletePayment(BuildContext context) async {
-    // 1. Сохраняем ссылку на ScaffoldMessenger ДО всех await.
     final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final provider = Provider.of<ScheduledPaymentProvider>(
+      context,
+      listen: false,
+    );
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Удаление'),
-        content: const Text('Вы уверены, что хотите удалить этот автоплатеж?'),
+        // --- ИЗМЕНЕНИЕ 6 ---
+        content: const Text(
+          'Вы уверены, что хотите удалить это автопополнение?',
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
+            onPressed: () => navigator.pop(false),
             child: const Text('Отмена'),
           ),
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
+            onPressed: () => navigator.pop(true),
             child: const Text('Удалить', style: TextStyle(color: Colors.red)),
           ),
         ],
@@ -54,20 +83,10 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
     );
 
     if (confirmed == true) {
-      // 2. Проверяем, что виджет все еще "жив" после showDialog.
-      if (!context.mounted) return;
-
-      await Provider.of<ScheduledPaymentProvider>(
-        context,
-        listen: false,
-      ).deletePayment(payment.id);
-
-      // 3. Снова проверяем 'mounted' после самого долгого await
-      if (!context.mounted) return;
-
-      // 4. Используем сохраненную ссылку, а не 'context', который может быть уже невалидным.
+      await provider.deletePayment(payment.id);
+      // --- ИЗМЕНЕНИЕ 7 ---
       scaffoldMessenger.showSnackBar(
-        const SnackBar(content: Text('Автоплатеж удален')),
+        const SnackBar(content: Text('Автопополнение удалено')),
       );
     }
   }
@@ -83,7 +102,7 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
       orElse: () => Account(
         id: 0,
         apiAccountId: 'N/A',
-        nickname: 'Не найден',
+        nickname: 'Счет не найден',
         currency: '',
         balances: [],
         bankClientId: '',
@@ -93,6 +112,7 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
     );
 
     return Card(
+      margin: const EdgeInsets.only(bottom: 12.0),
       color: Colors.amber[50],
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -101,17 +121,22 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text(
-                  'Автоплатеж настроен',
-                  style: Theme.of(context).textTheme.titleLarge,
+                Expanded(
+                  child: Text(
+                    // --- ИЗМЕНЕНИЕ 8 ---
+                    'Автопополнение #${payment.id}',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                 ),
-                const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.edit, color: Colors.black54),
                   onPressed: () {
                     Navigator.of(context).pushNamed(
                       '/scheduled-payment',
-                      arguments: creditorAccount, // Передаем счет-получатель
+                      arguments: {
+                        'creditorAccount': creditorAccount,
+                        'existingPayment': payment,
+                      },
                     );
                   },
                   tooltip: 'Изменить',
@@ -126,10 +151,12 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
             const Divider(),
             _buildInfoRow('Со счета:', debtorAccount.nickname),
             _buildInfoRow('Сумма:', _getAmountText()),
+            const SizedBox(height: 8),
             _buildInfoRow(
-              'День платежа:',
-              '${payment.paymentDayOfMonth}-е число',
+              'Следующий платеж:',
+              DateFormat('dd MMMM yyyy').format(payment.nextPaymentDate),
             ),
+            _buildInfoRow('Повторение:', _getRecurrenceText()),
           ],
         ),
       ),
@@ -138,12 +165,20 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
 
   Widget _buildInfoRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
         ],
       ),
     );

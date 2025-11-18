@@ -242,6 +242,13 @@ class PaymentListResponse(BaseModel):
     payments: List[PaymentResponse]
 # --- ^^^ КОНЕЦ НОВЫХ СХЕМ ^^^ ---
 
+# vvv НОВЫЙ ENUM vvv
+class RecurrenceTypeEnum(str, enum.Enum):
+    DAYS = "days"
+    WEEKS = "weeks"
+    MONTHS = "months"
+    YEARS = "years"
+
 class ScheduledPaymentAmountTypeEnum(str, enum.Enum):
     FIXED = "fixed"
     TOTAL_DEBIT = "total_debit"
@@ -251,30 +258,47 @@ class ScheduledPaymentAmountTypeEnum(str, enum.Enum):
 class ScheduledPaymentCore(BaseModel):
     debtor_account_id: int
     creditor_account_id: int
-    payment_day_of_month: int = Field(..., ge=1, le=31)
-    statement_day_of_month: int = Field(..., ge=1, le=31)
+    
+    # Новые поля
+    next_payment_date: date
+    period_start_date: Optional[date] = None
+    period_end_date: Optional[date] = None
+    recurrence_type: Optional[RecurrenceTypeEnum] = None
+    recurrence_interval: Optional[int] = Field(None, ge=1)
+    
     amount_type: ScheduledPaymentAmountTypeEnum
     fixed_amount: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
-    # vvv НОВОЕ ПОЛЕ vvv
-    minimum_payment_percentage: Optional[Decimal] = Field(None, max_digits=5, decimal_places=2, description="Процент для минимального платежа, например 10.50")
-    # ^^^ КОНЕЦ НОВОГО ПОЛЯ ^^^
+    minimum_payment_percentage: Optional[Decimal] = Field(None, max_digits=5, decimal_places=2)
     is_active: bool = True
 
 class ScheduledPaymentBase(ScheduledPaymentCore):
     @model_validator(mode='after')
-    def validate_amounts_by_type(self) -> 'ScheduledPaymentBase':
+    def validate_logic(self) -> 'ScheduledPaymentBase':
+        # Валидация для типов сумм
         if self.amount_type == ScheduledPaymentAmountTypeEnum.FIXED:
             if self.fixed_amount is None or self.fixed_amount <= 0:
-                raise ValueError(
-                    'For a "fixed" amount type, fixed_amount must be provided and be greater than zero.'
-                )
-        # vvv НОВЫЙ БЛОК ВАЛИДАЦИИ vvv
+                raise ValueError('fixed_amount is required for "fixed" amount type.')
         elif self.amount_type == ScheduledPaymentAmountTypeEnum.MINIMUM_PAYMENT:
             if self.minimum_payment_percentage is None or self.minimum_payment_percentage <= 0:
-                 raise ValueError(
-                    'For a "minimum_payment" amount type, minimum_payment_percentage must be provided and be greater than zero.'
-                )
-        # ^^^ КОНЕЦ НОВОГО БЛОКА ^^^
+                raise ValueError('minimum_payment_percentage is required for "minimum_payment" amount type.')
+        
+        # Валидация для периода расчета
+        if self.amount_type in [
+            ScheduledPaymentAmountTypeEnum.TOTAL_DEBIT,
+            ScheduledPaymentAmountTypeEnum.NET_DEBIT,
+            ScheduledPaymentAmountTypeEnum.MINIMUM_PAYMENT
+        ]:
+            if self.period_start_date is None or self.period_end_date is None:
+                raise ValueError('period_start_date and period_end_date are required for this amount type.')
+            if self.period_start_date > self.period_end_date:
+                raise ValueError('period_start_date cannot be after period_end_date.')
+
+        # Валидация для повторений
+        if self.recurrence_type is not None and self.recurrence_interval is None:
+            raise ValueError('recurrence_interval is required when recurrence_type is set.')
+        if self.recurrence_interval is not None and self.recurrence_type is None:
+            raise ValueError('recurrence_type is required when recurrence_interval is set.')
+            
         return self
 
 class ScheduledPaymentCreate(ScheduledPaymentBase):
@@ -283,14 +307,15 @@ class ScheduledPaymentCreate(ScheduledPaymentBase):
 class ScheduledPaymentUpdate(ScheduledPaymentBase):
     debtor_account_id: Optional[int] = None
     creditor_account_id: Optional[int] = None
-    payment_day_of_month: Optional[int] = Field(None, ge=1, le=31)
-    statement_day_of_month: Optional[int] = Field(None, ge=1, le=31)
+    next_payment_date: Optional[date] = None
+    period_start_date: Optional[date] = None
+    period_end_date: Optional[date] = None
+    recurrence_type: Optional[RecurrenceTypeEnum] = None
+    recurrence_interval: Optional[int] = Field(None, ge=1)
     amount_type: Optional[ScheduledPaymentAmountTypeEnum] = None
     is_active: Optional[bool] = None
     fixed_amount: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
-    # vvv НОВОЕ ПОЛЕ vvv
     minimum_payment_percentage: Optional[Decimal] = Field(None, max_digits=5, decimal_places=2)
-    # ^^^ КОНЕЦ НОВОГО ПОЛЯ ^^^
 
 class ScheduledPaymentResponse(ScheduledPaymentCore):
     id: int
@@ -301,7 +326,7 @@ class ScheduledPaymentResponse(ScheduledPaymentCore):
 
     class Config:
         from_attributes = True
-
+        
 class ScheduledPaymentListResponse(BaseModel):
     count: int
     payments: List[ScheduledPaymentResponse]

@@ -26,44 +26,29 @@ def create_scheduled_payment(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(user_is_admin_or_self)
 ):
-    # 1. Находим счет списания и проверяем, что он принадлежит пользователю
+    # Проверки счетов остаются
     debtor_account = db.query(models.Account).join(models.ConnectedBank).filter(
         models.Account.id == payment_data.debtor_account_id,
         models.ConnectedBank.user_id == user_id
     ).first()
-
-    # 2. Проверяем, что счет списания найден и валиден
     if not debtor_account:
         raise HTTPException(status_code=404, detail="Debtor account not found or access denied.")
-    if not debtor_account.currency:
-        raise HTTPException(status_code=400, detail="Debtor account does not have a currency set.")
 
-    # --- vvv НОВАЯ ПРОВЕРКА ЗДЕСЬ vvv ---
-
-    # 3. Находим счет зачисления и проверяем, что он ТОЖЕ принадлежит пользователю
     creditor_account = db.query(models.Account).join(models.ConnectedBank).filter(
         models.Account.id == payment_data.creditor_account_id,
         models.ConnectedBank.user_id == user_id
     ).first()
-
-    # 4. Проверяем, что счет зачисления найден
     if not creditor_account:
         raise HTTPException(status_code=404, detail="Creditor account not found or access denied.")
 
-    # --- ^^^ КОНЕЦ НОВОЙ ПРОВЕРКИ ^^^ ---
-
-    # 5. Получаем словарь из Pydantic модели
     payment_dict = payment_data.model_dump()
-
-    # 6. Добавляем в словарь валюту, полученную из счета списания
     payment_dict['currency'] = debtor_account.currency
     
-    # 7. Преобразуем enum из схемы в enum для модели
-    schema_enum_value = payment_data.amount_type.value
-    model_enum_member = models.ScheduledPaymentAmountType(schema_enum_value)
-    payment_dict['amount_type'] = model_enum_member
+    # Преобразуем enums из схемы в enums для модели
+    payment_dict['amount_type'] = models.ScheduledPaymentAmountType(payment_data.amount_type.value)
+    if payment_data.recurrence_type:
+        payment_dict['recurrence_type'] = models.RecurrenceType(payment_data.recurrence_type.value)
     
-    # 8. Создаем объект модели SQLAlchemy
     new_payment = models.ScheduledPayment(**payment_dict, user_id=user_id)
     
     db.add(new_payment)
@@ -89,51 +74,40 @@ def update_scheduled_payment(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(user_is_admin_or_self)
 ):
-    # ... (поиск платежа) ...
     db_payment = db.query(models.ScheduledPayment).filter(
         models.ScheduledPayment.id == payment_id,
         models.ScheduledPayment.user_id == user_id
     ).first()
-
     if not db_payment:
         raise HTTPException(status_code=404, detail="Scheduled payment not found.")
-        
+
     update_dict = update_data.model_dump(exclude_unset=True)
     
-    # --- vvv ОБНОВЛЕННАЯ ЛОГИКА КОНСИСТЕНТНОСТИ ДАННЫХ vvv ---
+    # Логика очистки полей
     final_amount_type = update_data.amount_type.value if 'amount_type' in update_dict else db_payment.amount_type.value
-
-    # Если новый тип НЕ 'fixed', обнуляем fixed_amount
     if final_amount_type != 'fixed':
         update_dict['fixed_amount'] = None
-        
-    # Если новый тип НЕ 'minimum_payment', обнуляем процент
     if final_amount_type != 'minimum_payment':
         update_dict['minimum_payment_percentage'] = None
-    # --- ^^^ КОНЕЦ ОБНОВЛЕННОЙ ЛОГИКИ ^^^ ---
-    
-    # ... (остальная часть функции остается без изменений) ...
+    if final_amount_type == 'fixed':
+        update_dict['period_start_date'] = None
+        update_dict['period_end_date'] = None
+        
+    # Преобразование enums
     if 'amount_type' in update_dict and update_dict['amount_type'] is not None:
-        schema_enum_value = update_data.amount_type.value
-        model_enum_member = models.ScheduledPaymentAmountType(schema_enum_value)
-        update_dict['amount_type'] = model_enum_member
+        update_dict['amount_type'] = models.ScheduledPaymentAmountType(update_data.amount_type.value)
+    if 'recurrence_type' in update_dict:
+        if update_data.recurrence_type:
+            update_dict['recurrence_type'] = models.RecurrenceType(update_data.recurrence_type.value)
+        else: # если прислали null
+            update_dict['recurrence_interval'] = None
 
-    if 'debtor_account_id' in update_dict:
-        new_debtor_id = update_dict['debtor_account_id']
-        new_debtor_account = db.query(models.Account).join(models.ConnectedBank).filter(
-            models.Account.id == new_debtor_id,
-            models.ConnectedBank.user_id == user_id
-        ).first()
-        if not new_debtor_account:
-            raise HTTPException(status_code=404, detail="New debtor account not found or access denied.")
-        update_dict['currency'] = new_debtor_account.currency
-
+    # ... (остальная логика обновления) ...
     for key, value in update_dict.items():
         setattr(db_payment, key, value)
     
     db.commit()
     db.refresh(db_payment)
-    
     return db_payment
 
 
