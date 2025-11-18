@@ -1,8 +1,10 @@
 // lib/providers/scheduled_payment_provider.dart
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart'; // Потребуется для дат
 import '../models/account.dart';
 import '../models/scheduled_payment.dart';
+import '../models/turnover_data.dart'; // <-- НОВЫЙ ИМПОРТ
 import '../services/api_service.dart';
 import 'accounts_provider.dart';
 import 'auth_provider.dart';
@@ -48,7 +50,39 @@ class ScheduledPaymentProvider with ChangeNotifier {
     }
   }
 
-  // --- ИЗМЕНЕНИЕ 1: Упрощенный и эффективный метод сохранения ---
+  // --- НОВЫЙ МЕТОД ДЛЯ ПОЛУЧЕНИЯ ДАННЫХ ДЛЯ ПРЕДПРОСМОТРА ---
+  Future<TurnoverData?> fetchTurnoverForPeriod({
+    required int accountId,
+    required DateTimeRange period,
+  }) async {
+    if (authProvider == null || !authProvider!.isAuthenticated) return null;
+
+    // Находим полный объект счета, чтобы получить bankId и apiAccountId
+    final account = _allUserAccounts.firstWhere(
+      (acc) => acc.id == accountId,
+      orElse: () {
+        throw Exception('Account not found in provider cache');
+      },
+    );
+
+    try {
+      final turnover = await _apiService.getAccountTurnover(
+        token: authProvider!.token!,
+        userId: authProvider!.userId!,
+        bankId: account.bankId,
+        apiAccountId: account.apiAccountId,
+        from: period.start,
+        to: period.end,
+      );
+      return turnover;
+    } catch (e) {
+      print("Error fetching turnover for preview: $e");
+      // Возвращаем null в случае ошибки, чтобы UI мог это обработать
+      return null;
+    }
+  }
+  // --- КОНЕЦ НОВОГО МЕТОДА ---
+
   Future<void> savePayment({
     required Map<String, dynamic> data,
     int? paymentId,
@@ -56,33 +90,27 @@ class ScheduledPaymentProvider with ChangeNotifier {
     if (authProvider == null || !authProvider!.isAuthenticated) return;
 
     if (paymentId != null) {
-      // --- РЕЖИМ ОБНОВЛЕНИЯ ---
       final updatedPayment = await _apiService.updateScheduledPayment(
         authProvider!.token!,
         authProvider!.userId!,
         paymentId,
         data,
       );
-      // Находим индекс старого платежа и заменяем его на обновленный
       final index = _allPayments.indexWhere((p) => p.id == paymentId);
       if (index != -1) {
         _allPayments[index] = updatedPayment;
       }
     } else {
-      // --- РЕЖИМ СОЗДАНИЯ ---
       final newPayment = await _apiService.createScheduledPayment(
         authProvider!.token!,
         authProvider!.userId!,
         data,
       );
-      // Просто добавляем новый платеж в список
       _allPayments.add(newPayment);
     }
-    // Уведомляем слушателей об изменении списка
     notifyListeners();
   }
 
-  // --- ИЗМЕНЕНИЕ 2: Упрощенный и эффективный метод удаления ---
   Future<void> deletePayment(int paymentId) async {
     if (authProvider == null || !authProvider!.isAuthenticated) return;
 
@@ -92,10 +120,8 @@ class ScheduledPaymentProvider with ChangeNotifier {
       paymentId,
     );
 
-    // Просто удаляем платеж из локального списка
     _allPayments.removeWhere((p) => p.id == paymentId);
 
-    // Уведомляем слушателей об изменении
     notifyListeners();
   }
 }
