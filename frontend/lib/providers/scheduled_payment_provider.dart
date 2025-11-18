@@ -11,7 +11,6 @@ class ScheduledPaymentProvider with ChangeNotifier {
   final ApiService _apiService = ApiService();
   final AuthProvider? authProvider;
 
-  // --- ИЗМЕНЕНИЕ 1: Храним все платежи в одном списке, а не в карте ---
   List<ScheduledPayment> _allPayments = [];
   List<Account> _allUserAccounts = [];
   bool _isLoading = false;
@@ -21,27 +20,23 @@ class ScheduledPaymentProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   List<Account> get allUserAccounts => _allUserAccounts;
 
-  // --- ИЗМЕНЕНИЕ 2: Метод для получения ВСЕХ автоплатежей для конкретного счета ---
   List<ScheduledPayment> getPaymentsForAccount(int creditorAccountId) {
     return _allPayments
         .where((p) => p.creditorAccountId == creditorAccountId)
         .toList();
   }
 
-  // Загружаем все данные, необходимые для работы
   Future<void> fetchData(AccountsProvider accountsProvider) async {
     if (authProvider == null || !authProvider!.isAuthenticated) return;
     _isLoading = true;
     notifyListeners();
 
     try {
-      // --- ИЗМЕНЕНИЕ 3: Просто загружаем все настроенные автоплатежи в список ---
       _allPayments = await _apiService.getScheduledPayments(
         authProvider!.token!,
         authProvider!.userId!,
       );
 
-      // Получаем список всех счетов пользователя из другого провайдера
       _allUserAccounts = accountsProvider.banksWithAccounts
           .expand((bank) => bank.accounts)
           .toList();
@@ -53,45 +48,54 @@ class ScheduledPaymentProvider with ChangeNotifier {
     }
   }
 
-  // --- ИЗМЕНЕНИЕ 4: Универсальный метод для сохранения (создания ИЛИ обновления) ---
+  // --- ИЗМЕНЕНИЕ 1: Упрощенный и эффективный метод сохранения ---
   Future<void> savePayment({
     required Map<String, dynamic> data,
-    int? paymentId, // Необязательный ID для режима обновления
+    int? paymentId,
   }) async {
     if (authProvider == null || !authProvider!.isAuthenticated) return;
 
     if (paymentId != null) {
-      // Обновляем существующий платеж
-      await _apiService.updateScheduledPayment(
+      // --- РЕЖИМ ОБНОВЛЕНИЯ ---
+      final updatedPayment = await _apiService.updateScheduledPayment(
         authProvider!.token!,
         authProvider!.userId!,
         paymentId,
         data,
       );
+      // Находим индекс старого платежа и заменяем его на обновленный
+      final index = _allPayments.indexWhere((p) => p.id == paymentId);
+      if (index != -1) {
+        _allPayments[index] = updatedPayment;
+      }
     } else {
-      // Создаем новый платеж
-      await _apiService.createScheduledPayment(
+      // --- РЕЖИМ СОЗДАНИЯ ---
+      final newPayment = await _apiService.createScheduledPayment(
         authProvider!.token!,
         authProvider!.userId!,
         data,
       );
+      // Просто добавляем новый платеж в список
+      _allPayments.add(newPayment);
     }
-    // После сохранения перезагружаем данные, чтобы UI обновился
-    // Создаем временный AccountsProvider, так как у нас нет прямого доступа к нему здесь
-    final tempAccountsProvider = AccountsProvider(authProvider);
-    await fetchData(tempAccountsProvider);
+    // Уведомляем слушателей об изменении списка
+    notifyListeners();
   }
 
-  // Метод для удаления (остается без изменений)
+  // --- ИЗМЕНЕНИЕ 2: Упрощенный и эффективный метод удаления ---
   Future<void> deletePayment(int paymentId) async {
     if (authProvider == null || !authProvider!.isAuthenticated) return;
+
     await _apiService.deleteScheduledPayment(
       authProvider!.token!,
       authProvider!.userId!,
       paymentId,
     );
-    // Перезагружаем данные после удаления
-    final tempAccountsProvider = AccountsProvider(authProvider);
-    await fetchData(tempAccountsProvider);
+
+    // Просто удаляем платеж из локального списка
+    _allPayments.removeWhere((p) => p.id == paymentId);
+
+    // Уведомляем слушателей об изменении
+    notifyListeners();
   }
 }

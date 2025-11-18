@@ -7,10 +7,11 @@ import 'package:provider/provider.dart';
 import '../models/scheduled_payment.dart';
 import '../providers/scheduled_payment_provider.dart';
 import '../models/account.dart';
+import '../utils/formatting.dart'; // Убедитесь, что этот импорт есть
 
 class ScheduledPaymentInfoCard extends StatelessWidget {
   final ScheduledPayment payment;
-  final Account creditorAccount;
+  final Account creditorAccount; // Счет, для которого настроен платеж
 
   const ScheduledPaymentInfoCard({
     super.key,
@@ -18,17 +19,34 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
     required this.creditorAccount,
   });
 
+  // --- ИЗМЕНЕНИЕ 1: Обновленный метод для получения текста суммы с периодом ---
   String _getAmountText() {
+    String text;
+    // Сначала определяем базовый текст
     switch (payment.amountType) {
       case AmountType.fixed:
+        // Для фиксированной суммы период не нужен, возвращаем сразу
         return '${payment.fixedAmount} ${payment.currency ?? ''}';
       case AmountType.total_debit:
-        return 'Все расходы за период';
+        text = 'Все расходы за период';
+        break;
       case AmountType.net_debit:
-        return 'Долг за период';
+        text = 'Долг за период';
+        break;
       case AmountType.minimum_payment:
-        return 'Мин. платеж (${payment.minimumPaymentPercentage} % от долга)';
+        text = 'Мин. платеж (${payment.minimumPaymentPercentage} % от долга)';
+        break;
     }
+
+    // Если для этого типа нужен период и он задан, добавляем его
+    if (payment.periodStartDate != null && payment.periodEndDate != null) {
+      final formatter = DateFormat('dd.MM.yy');
+      final start = formatter.format(payment.periodStartDate!);
+      final end = formatter.format(payment.periodEndDate!);
+      text += ' ($start - $end)';
+    }
+
+    return text;
   }
 
   String _getRecurrenceText() {
@@ -50,6 +68,17 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
         periodText = 'год';
         break;
     }
+    // Простое правило для склонения
+    if (payment.recurrenceInterval! > 1 && payment.recurrenceInterval! < 5) {
+      if (periodText == 'неделю') periodText = 'недели';
+      if (periodText == 'месяц') periodText = 'месяца';
+      if (periodText == 'год') periodText = 'года';
+    } else if (payment.recurrenceInterval! >= 5) {
+      if (periodText == 'неделю') periodText = 'недель';
+      if (periodText == 'месяц') periodText = 'месяцев';
+      if (periodText == 'год') periodText = 'лет';
+    }
+
     return 'Каждые ${payment.recurrenceInterval} $periodText';
   }
 
@@ -65,7 +94,6 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Удаление'),
-        // --- ИЗМЕНЕНИЕ 6 ---
         content: const Text(
           'Вы уверены, что хотите удалить это автопополнение?',
         ),
@@ -84,7 +112,6 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
 
     if (confirmed == true) {
       await provider.deletePayment(payment.id);
-      // --- ИЗМЕНЕНИЕ 7 ---
       scaffoldMessenger.showSnackBar(
         const SnackBar(content: Text('Автопополнение удалено')),
       );
@@ -123,7 +150,6 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    // --- ИЗМЕНЕНИЕ 8 ---
                     'Автопополнение #${payment.id}',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
@@ -149,7 +175,11 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
               ],
             ),
             const Divider(),
-            _buildInfoRow('Со счета:', debtorAccount.nickname),
+            // --- ИЗМЕНЕНИЕ 2: Используем новый метод для отображения счета ---
+            _buildInfoRowWithWidget(
+              'Со счета:',
+              _buildDebtorAccountDetails(debtorAccount),
+            ),
             _buildInfoRow('Сумма:', _getAmountText()),
             const SizedBox(height: 8),
             _buildInfoRow(
@@ -163,6 +193,34 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
     );
   }
 
+  // --- ИЗМЕНЕНИЕ 3: Новый метод для отрисовки сложного виджета счета ---
+  Widget _buildDebtorAccountDetails(Account debtorAccount) {
+    final balance = debtorAccount.availableBalance;
+    final balanceText = balance != null
+        ? (num.tryParse(balance.amount) ?? 0.0).toFormattedCurrency(
+            balance.currency,
+          )
+        : 'Баланс н/д';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          debtorAccount.nickname,
+          textAlign: TextAlign.end,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '${debtorAccount.bankName.toUpperCase()} | ${debtorAccount.bankClientId}\n$balanceText',
+          textAlign: TextAlign.end,
+          style: TextStyle(fontSize: 12, color: Colors.grey[700], height: 1.4),
+        ),
+      ],
+    );
+  }
+
+  // Обычная строка для простых пар "метка: значение"
   Widget _buildInfoRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
@@ -179,6 +237,26 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  // --- ИЗМЕНЕНИЕ 4: Новый метод-обертка для пар "метка: сложный виджет" ---
+  Widget _buildInfoRowWithWidget(String label, Widget valueWidget) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(
+              top: 2.0,
+            ), // Небольшой отступ для метки
+            child: Text(label, style: const TextStyle(color: Colors.grey)),
+          ),
+          const SizedBox(width: 16),
+          Expanded(child: valueWidget),
         ],
       ),
     );

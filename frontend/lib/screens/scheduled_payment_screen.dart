@@ -1,6 +1,6 @@
 // lib/screens/scheduled_payment_screen.dart
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart'; // <--- ИСПРАВЛЕНА ОШИБКА ЗДЕСЬ
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -110,28 +110,30 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
     super.dispose();
   }
 
-  Future<void> _pickDate() async {
+  Future<void> _pickDate(FormFieldState<DateTime> field) async {
     final pickedDate = await showDatePicker(
       context: context,
-      initialDate: _nextPaymentDate,
+      initialDate: field.value ?? _nextPaymentDate,
       firstDate: DateTime.now().subtract(const Duration(days: 365)),
       lastDate: DateTime(2100),
     );
-    if (pickedDate != null && pickedDate != _nextPaymentDate) {
+    if (pickedDate != null) {
+      field.didChange(pickedDate);
       setState(() {
         _nextPaymentDate = pickedDate;
       });
     }
   }
 
-  Future<void> _pickDateRange() async {
+  Future<void> _pickDateRange(FormFieldState<DateTimeRange> field) async {
     final pickedRange = await showDateRangePicker(
       context: context,
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
-      initialDateRange: _period,
+      initialDateRange: field.value ?? _period,
     );
-    if (pickedRange != null && pickedRange != _period) {
+    if (pickedRange != null) {
+      field.didChange(pickedRange);
       setState(() {
         _period = pickedRange;
       });
@@ -184,7 +186,6 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          // --- ИЗМЕНЕНИЕ 4 ---
           content: Text('Настройки автопополнения сохранены!'),
           backgroundColor: Colors.green,
         ),
@@ -193,7 +194,10 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text('Ошибка: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -202,7 +206,6 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // --- ИЗМЕНЕНИЕ 5 ---
     final appBarTitle = _existingPayment == null
         ? 'Новое автопополнение'
         : 'Изменить автопополнение';
@@ -303,15 +306,20 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                               ),
                             ),
                             const Divider(),
-                            ListTile(
-                              title: const Text('Дата следующего платежа'),
-                              subtitle: Text(
-                                DateFormat(
-                                  'dd MMMM yyyy',
-                                ).format(_nextPaymentDate),
-                              ),
-                              trailing: const Icon(Icons.calendar_today),
-                              onTap: _pickDate,
+                            FormField<DateTime>(
+                              initialValue: _nextPaymentDate,
+                              builder: (field) {
+                                return ListTile(
+                                  title: const Text('Дата следующего платежа'),
+                                  subtitle: Text(
+                                    DateFormat(
+                                      'dd MMMM yyyy',
+                                    ).format(field.value!),
+                                  ),
+                                  trailing: const Icon(Icons.calendar_today),
+                                  onTap: () => _pickDate(field),
+                                );
+                              },
                             ),
                             SwitchListTile(
                               title: const Text('Повторять платеж'),
@@ -338,10 +346,14 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                                           labelText: 'Каждые',
                                         ),
                                         keyboardType: TextInputType.number,
-                                        validator: (v) =>
-                                            (int.tryParse(v ?? '0') ?? 0) < 1
-                                            ? 'Введите > 0'
-                                            : null,
+                                        validator: (v) {
+                                          if (_isRecurring &&
+                                              (int.tryParse(v ?? '0') ?? 0) <
+                                                  1) {
+                                            return 'Введите > 0';
+                                          }
+                                          return null;
+                                        },
                                       ),
                                     ),
                                     const SizedBox(width: 16),
@@ -367,8 +379,12 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                                               () =>
                                                   _selectedRecurrenceType = val,
                                             ),
-                                            validator: (v) =>
-                                                v == null ? 'Выберите' : null,
+                                            validator: (v) {
+                                              if (_isRecurring && v == null) {
+                                                return 'Выберите';
+                                              }
+                                              return null;
+                                            },
                                           ),
                                     ),
                                   ],
@@ -422,9 +438,12 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                                         decimal: true,
                                       ),
                                   validator: (value) {
-                                    if (value == null ||
-                                        value.isEmpty ||
-                                        (double.tryParse(value) ?? 0) <= 0) {
+                                    if (_selectedAmountType ==
+                                            AmountType.fixed &&
+                                        (value == null ||
+                                            value.isEmpty ||
+                                            (double.tryParse(value) ?? 0) <=
+                                                0)) {
                                       return 'Введите сумму больше нуля';
                                     }
                                     return null;
@@ -474,9 +493,12 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                                         decimal: true,
                                       ),
                                   validator: (value) {
-                                    if (value == null ||
-                                        value.isEmpty ||
-                                        (double.tryParse(value) ?? 0) <= 0) {
+                                    if (_selectedAmountType ==
+                                            AmountType.minimum_payment &&
+                                        (value == null ||
+                                            value.isEmpty ||
+                                            (double.tryParse(value) ?? 0) <=
+                                                0)) {
                                       return 'Введите процент больше нуля';
                                     }
                                     return null;
@@ -484,15 +506,55 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                                 ),
                               ),
                             if (_selectedAmountType != AmountType.fixed)
-                              ListTile(
-                                title: const Text('Период для расчета'),
-                                subtitle: _period == null
-                                    ? const Text('Не выбран')
-                                    : Text(
-                                        '${DateFormat('dd.MM.yy').format(_period!.start)} - ${DateFormat('dd.MM.yy').format(_period!.end)}',
+                              FormField<DateTimeRange>(
+                                initialValue: _period,
+                                validator: (value) {
+                                  final requiresPeriod =
+                                      _selectedAmountType ==
+                                          AmountType.total_debit ||
+                                      _selectedAmountType ==
+                                          AmountType.net_debit ||
+                                      _selectedAmountType ==
+                                          AmountType.minimum_payment;
+                                  if (requiresPeriod && value == null) {
+                                    return 'Выберите период для расчета суммы';
+                                  }
+                                  return null;
+                                },
+                                builder: (field) {
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      ListTile(
+                                        title: const Text('Период для расчета'),
+                                        subtitle: field.value == null
+                                            ? const Text('Не выбран')
+                                            : Text(
+                                                '${DateFormat('dd.MM.yy').format(field.value!.start)} - ${DateFormat('dd.MM.yy').format(field.value!.end)}',
+                                              ),
+                                        trailing: const Icon(Icons.date_range),
+                                        onTap: () => _pickDateRange(field),
                                       ),
-                                trailing: const Icon(Icons.date_range),
-                                onTap: _pickDateRange,
+                                      if (field.hasError)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            left: 16.0,
+                                            bottom: 8.0,
+                                          ),
+                                          child: Text(
+                                            field.errorText!,
+                                            style: TextStyle(
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.error,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  );
+                                },
                               ),
                           ],
                         ),
