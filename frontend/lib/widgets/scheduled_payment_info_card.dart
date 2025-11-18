@@ -5,83 +5,151 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/scheduled_payment.dart';
+import '../models/turnover_data.dart';
 import '../providers/scheduled_payment_provider.dart';
 import '../models/account.dart';
-import '../utils/formatting.dart'; // Убедитесь, что этот импорт есть
+import '../utils/formatting.dart';
 
 class ScheduledPaymentInfoCard extends StatelessWidget {
   final ScheduledPayment payment;
-  final Account creditorAccount; // Счет, для которого настроен платеж
+  final Account creditorAccount;
+  final TurnoverData? turnoverForPreview;
+  final bool isPreviewLoading;
 
   const ScheduledPaymentInfoCard({
     super.key,
     required this.payment,
     required this.creditorAccount,
+    this.turnoverForPreview,
+    this.isPreviewLoading = false,
   });
 
-  // --- ИЗМЕНЕНИЕ 1: Обновленный метод для получения текста суммы с периодом ---
-  String _getAmountText() {
-    String text;
-    // Сначала определяем базовый текст
+  /// Вычисляет и форматирует предварительную сумму платежа, если есть данные.
+  String? _calculatePreviewAmount() {
+    if (turnoverForPreview == null) return null;
+
+    double amount = 0;
+    bool calculationDone = false;
+
     switch (payment.amountType) {
-      case AmountType.fixed:
-        // Для фиксированной суммы период не нужен, возвращаем сразу
-        return '${payment.fixedAmount} ${payment.currency ?? ''}';
       case AmountType.total_debit:
-        text = 'Все расходы за период';
+        amount = turnoverForPreview!.totalDebit;
+        calculationDone = true;
         break;
       case AmountType.net_debit:
-        text = 'Долг за период';
+        amount =
+            turnoverForPreview!.totalDebit - turnoverForPreview!.totalCredit;
+        calculationDone = true;
         break;
       case AmountType.minimum_payment:
-        text = 'Мин. платеж (${payment.minimumPaymentPercentage} % от долга)';
+        final percentage = payment.minimumPaymentPercentage ?? 0.0;
+        if (percentage > 0) {
+          final debt =
+              turnoverForPreview!.totalDebit - turnoverForPreview!.totalCredit;
+          amount = debt * (percentage / 100);
+          calculationDone = true;
+        }
+        break;
+      case AmountType.fixed:
         break;
     }
 
-    // Если для этого типа нужен период и он задан, добавляем его
+    if (!calculationDone) return null;
+    if (amount < 0) amount = 0;
+
+    String previewText =
+        '~ ${amount.toFormattedCurrency(turnoverForPreview!.currency)}';
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    if (payment.periodEndDate != null &&
+        payment.periodEndDate!.isAfter(today)) {
+      previewText += ' (на ${DateFormat('dd.MM.yy').format(today)})';
+    }
+    return previewText;
+  }
+
+  // --- ГЛАВНОЕ ИЗМЕНЕНИЕ: Обновленный метод для получения текста суммы ---
+  /// Возвращает финальный текст для отображения суммы.
+  String _getAmountText() {
+    // 1. Получаем базовый описательный текст
+    String baseText;
+    switch (payment.amountType) {
+      case AmountType.fixed:
+        // Для фиксированной суммы расчеты не нужны, возвращаем сразу
+        return '${payment.fixedAmount?.toStringAsFixed(2) ?? '0.00'} ${payment.currency ?? ''}';
+      case AmountType.total_debit:
+        baseText = 'Все расходы за период';
+        break;
+      case AmountType.net_debit:
+        baseText = 'Долг за период';
+        break;
+      case AmountType.minimum_payment:
+        baseText =
+            'Мин. платеж (${payment.minimumPaymentPercentage}% от долга)';
+        break;
+    }
+
+    // 2. Добавляем информацию о периоде к базовому тексту
     if (payment.periodStartDate != null && payment.periodEndDate != null) {
       final formatter = DateFormat('dd.MM.yy');
       final start = formatter.format(payment.periodStartDate!);
       final end = formatter.format(payment.periodEndDate!);
-      text += ' ($start - $end)';
+      baseText += ' ($start - $end)';
     }
 
-    return text;
+    // 3. Проверяем состояние загрузки
+    if (isPreviewLoading) {
+      return '$baseText\nРасчет...'; // Показываем базовый текст и статус расчета
+    }
+
+    // 4. Пытаемся получить рассчитанную сумму
+    final calculatedAmount = _calculatePreviewAmount();
+    if (calculatedAmount != null) {
+      // Объединяем базовый текст и рассчитанную сумму через перенос строки
+      return '$baseText\n$calculatedAmount';
+    }
+
+    // 5. Если ничего из вышеперечисленного не сработало, возвращаем только базовый текст
+    return baseText;
   }
 
+  /// Возвращает отформатированную строку с правилами повторения.
   String _getRecurrenceText() {
     if (payment.recurrenceType == null || payment.recurrenceInterval == null) {
       return 'Одноразовый платеж';
     }
+
+    final int interval = payment.recurrenceInterval!;
     String periodText;
+
+    String pluralize(int count, String one, String few, String many) {
+      if (count % 10 == 1 && count % 100 != 11) return one;
+      if (count % 10 >= 2 &&
+          count % 10 <= 4 &&
+          (count % 100 < 10 || count % 100 >= 20))
+        return few;
+      return many;
+    }
+
     switch (payment.recurrenceType!) {
       case RecurrenceType.days:
-        periodText = 'день';
+        periodText = pluralize(interval, 'день', 'дня', 'дней');
         break;
       case RecurrenceType.weeks:
-        periodText = 'неделю';
+        periodText = pluralize(interval, 'неделю', 'недели', 'недель');
         break;
       case RecurrenceType.months:
-        periodText = 'месяц';
+        periodText = pluralize(interval, 'месяц', 'месяца', 'месяцев');
         break;
       case RecurrenceType.years:
-        periodText = 'год';
+        periodText = pluralize(interval, 'год', 'года', 'лет');
         break;
     }
-    // Простое правило для склонения
-    if (payment.recurrenceInterval! > 1 && payment.recurrenceInterval! < 5) {
-      if (periodText == 'неделю') periodText = 'недели';
-      if (periodText == 'месяц') periodText = 'месяца';
-      if (periodText == 'год') periodText = 'года';
-    } else if (payment.recurrenceInterval! >= 5) {
-      if (periodText == 'неделю') periodText = 'недель';
-      if (periodText == 'месяц') periodText = 'месяцев';
-      if (periodText == 'год') periodText = 'лет';
-    }
-
-    return 'Каждые ${payment.recurrenceInterval} $periodText';
+    return 'Каждые $interval $periodText';
   }
 
+  /// Показывает диалог подтверждения и удаляет автопополнение.
   Future<void> _deletePayment(BuildContext context) async {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
@@ -175,7 +243,6 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
               ],
             ),
             const Divider(),
-            // --- ИЗМЕНЕНИЕ 2: Используем новый метод для отображения счета ---
             _buildInfoRowWithWidget(
               'Со счета:',
               _buildDebtorAccountDetails(debtorAccount),
@@ -193,7 +260,7 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
     );
   }
 
-  // --- ИЗМЕНЕНИЕ 3: Новый метод для отрисовки сложного виджета счета ---
+  /// Вспомогательный виджет для отображения полной информации о счете-доноре.
   Widget _buildDebtorAccountDetails(Account debtorAccount) {
     final balance = debtorAccount.availableBalance;
     final balanceText = balance != null
@@ -220,7 +287,7 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
     );
   }
 
-  // Обычная строка для простых пар "метка: значение"
+  /// Вспомогательный виджет для простой строки "Метка: Значение".
   Widget _buildInfoRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
@@ -228,7 +295,10 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: Colors.grey)),
+          Padding(
+            padding: const EdgeInsets.only(top: 1.0),
+            child: Text(label, style: const TextStyle(color: Colors.grey)),
+          ),
           const SizedBox(width: 16),
           Expanded(
             child: Text(
@@ -242,7 +312,7 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
     );
   }
 
-  // --- ИЗМЕНЕНИЕ 4: Новый метод-обертка для пар "метка: сложный виджет" ---
+  /// Вспомогательный виджет для строки "Метка: Сложный виджет".
   Widget _buildInfoRowWithWidget(String label, Widget valueWidget) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
@@ -250,9 +320,7 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(
-              top: 2.0,
-            ), // Небольшой отступ для метки
+            padding: const EdgeInsets.only(top: 2.0),
             child: Text(label, style: const TextStyle(color: Colors.grey)),
           ),
           const SizedBox(width: 16),

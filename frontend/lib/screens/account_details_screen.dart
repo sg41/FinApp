@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 
 import '../models/account.dart';
 import '../models/account.dart' show Balance;
+import '../models/scheduled_payment.dart';
+import '../models/turnover_data.dart';
 import '../providers/account_details_provider.dart';
 import '../providers/accounts_provider.dart';
 import '../providers/scheduled_payment_provider.dart';
@@ -20,25 +22,92 @@ class AccountDetailsScreen extends StatefulWidget {
 }
 
 class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
+  // Состояние для хранения предпросмотров сумм
+  final Map<int, TurnoverData?> _turnoverPreviews = {};
+  final Map<int, bool> _isLoadingPreviews = {};
+  Account? _currentAccount;
+
   @override
   void initState() {
     super.initState();
-    _fetchData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _currentAccount = Provider.of<AccountDetailsProvider>(
+          context,
+          listen: false,
+        ).account;
+        _fetchData();
+      }
+    });
   }
 
-  Future<void> _fetchData() {
-    return Future.microtask(() {
-      if (!mounted) return;
-      final scheduledPaymentProvider = Provider.of<ScheduledPaymentProvider>(
-        context,
-        listen: false,
-      );
-      final accountsProvider = Provider.of<AccountsProvider>(
-        context,
-        listen: false,
-      );
-      scheduledPaymentProvider.fetchData(accountsProvider);
-    });
+  /// Загружает основные данные и запускает загрузку предпросмотров
+  Future<void> _fetchData() async {
+    final scheduledPaymentProvider = Provider.of<ScheduledPaymentProvider>(
+      context,
+      listen: false,
+    );
+    final accountsProvider = Provider.of<AccountsProvider>(
+      context,
+      listen: false,
+    );
+
+    // Сначала загружаем основную информацию (список автопополнений и счетов)
+    await scheduledPaymentProvider.fetchData(accountsProvider);
+
+    // После основной загрузки запускаем получение данных для предпросмотра
+    if (mounted) {
+      _fetchTurnoverPreviews();
+    }
+  }
+
+  /// Асинхронно загружает данные об оборотах для каждого автопополнения, которому это нужно
+  Future<void> _fetchTurnoverPreviews() async {
+    if (_currentAccount == null) return;
+
+    final scheduledProvider = Provider.of<ScheduledPaymentProvider>(
+      context,
+      listen: false,
+    );
+    final payments = scheduledProvider.getPaymentsForAccount(
+      _currentAccount!.id,
+    );
+
+    // Итерируем по всем автопополнениям этого счета
+    for (final payment in payments) {
+      // Определяем, нужно ли для этого платежа загружать данные
+      final needsFetching =
+          payment.amountType != AmountType.fixed &&
+          payment.periodStartDate != null &&
+          payment.periodEndDate != null &&
+          _isLoadingPreviews[payment.id] != true;
+
+      if (needsFetching) {
+        if (mounted) {
+          setState(() {
+            _isLoadingPreviews[payment.id] = true;
+          });
+        }
+
+        final period = DateTimeRange(
+          start: payment.periodStartDate!,
+          end: payment.periodEndDate!,
+        );
+
+        // Вызываем метод провайдера для получения данных
+        final turnover = await scheduledProvider.fetchTurnoverForPeriod(
+          accountId: _currentAccount!.id,
+          period: period,
+        );
+
+        if (mounted) {
+          setState(() {
+            _turnoverPreviews[payment.id] = turnover;
+            _isLoadingPreviews[payment.id] = false;
+          });
+        }
+      }
+    }
   }
 
   Future<void> _selectDateRange(BuildContext context) async {
@@ -104,7 +173,7 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
                   },
                 );
                 if (result == true && mounted) {
-                  _fetchData();
+                  _fetchData(); // Перезагружаем все данные
                 }
               },
               icon: const Icon(Icons.add),
@@ -117,8 +186,6 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
                 children: [
                   _buildInfoCard(context, account),
                   const SizedBox(height: 24),
-
-                  // --- НАЧАЛО БЛОКА "ОБОРОТЫ ЗА ПЕРИОД" (ПЕРЕМЕЩЕН ВВЕРХ) ---
                   if (detailsProvider.isLoading)
                     const Center(child: CircularProgressIndicator())
                   else
@@ -143,18 +210,17 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
                         account,
                       ),
                     ),
-
-                  // --- КОНЕЦ БЛОКА "ОБОРОТЫ ЗА ПЕРИОД" ---
                   const SizedBox(height: 24),
-
-                  // --- НАЧАЛО БЛОКА "АВТОПОПОЛНЕНИЯ" (ПЕРЕМЕЩЕН ВНИЗ) ---
                   Text(
                     'Настроенные автопополнения',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const Divider(),
                   if (scheduledProvider.isLoading)
-                    const Center(child: CircularProgressIndicator())
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24.0),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
                   else if (paymentsForAccount.isEmpty)
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 24.0),
@@ -169,9 +235,11 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
                       return ScheduledPaymentInfoCard(
                         payment: payment,
                         creditorAccount: account,
+                        turnoverForPreview: _turnoverPreviews[payment.id],
+                        isPreviewLoading:
+                            _isLoadingPreviews[payment.id] ?? false,
                       );
                     }).toList(),
-                  // --- КОНЕЦ БЛОКА "АВТОПОПОЛНЕНИЯ" ---
                 ],
               ),
             ),
@@ -185,7 +253,6 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
     final List<Widget> widgets = [];
     Balance? availableBalance;
     Balance? bookedBalance;
-
     try {
       availableBalance = account.balances.firstWhere(
         (b) => b.type == 'InterimAvailable',
@@ -193,7 +260,6 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
     } catch (e) {
       /* not found */
     }
-
     try {
       bookedBalance = account.balances.firstWhere(
         (b) => b.type == 'InterimBooked',
@@ -225,7 +291,6 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
       final availableAmount = num.tryParse(availableBalance.amount) ?? 0.0;
       final bookedAmount = num.tryParse(bookedBalance.amount) ?? 0.0;
       final difference = availableAmount - bookedAmount;
-
       if (difference.abs() > 0.01) {
         widgets.add(
           _buildInfoRow(
