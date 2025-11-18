@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/account.dart'; // <-- Добавьте этот импорт, если его нет
 import '../providers/auth_provider.dart';
 import '../providers/accounts_provider.dart';
 import '../providers/connections_provider.dart';
@@ -77,7 +78,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Получаем провайдер один раз, чтобы не вызывать его в цикле
     final accountDetailsProvider = Provider.of<AccountDetailsProvider>(
       context,
       listen: false,
@@ -112,7 +112,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
                   fontSize: 14,
                   fontWeight: FontWeight.normal,
                 ),
-                // Добавляем защиту от переполнения и для общей суммы
                 overflow: TextOverflow.ellipsis,
                 maxLines: 1,
               ),
@@ -128,13 +127,11 @@ class _AccountsScreenState extends State<AccountsScreen> {
                 child: ExpansionTile(
                   onExpansionChanged: (isExpanded) {
                     if (isExpanded) {
-                      // При раскрытии списка предзагружаем данные для каждого счета
                       for (final account in bank.accounts) {
                         accountDetailsProvider.fetchTurnoverForAccount(account);
                       }
                     }
                   },
-                  // --- vvv ГЛАВНОЕ ИЗМЕНЕНИЕ ДЛЯ ИСПРАВЛЕНИЯ OVERFLOW vvv ---
                   title: Row(
                     children: [
                       Expanded(
@@ -158,66 +155,75 @@ class _AccountsScreenState extends State<AccountsScreen> {
                       ),
                     ],
                   ),
-                  // --- ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^ ---
-                  children: bank.accounts.map((account) {
-                    final balance = account.balances.isNotEmpty
-                        ? account.balances.first
-                        : null;
+                  // --- ГЛАВНОЕ ИЗМЕНЕНИЕ: СОРТИРОВКА СПИСКА СЧЕТОВ ---
+                  children:
+                      (List<Account>.from(bank.accounts)..sort(
+                            (a, b) => a.apiAccountId.compareTo(b.apiAccountId),
+                          ))
+                          .map((account) {
+                            final balance = account.availableBalance;
 
-                    return InkWell(
-                      mouseCursor: SystemMouseCursors.click,
-                      onTap: () async {
-                        // 1. Просто устанавливаем текущий аккаунт.
-                        // Данные уже могут быть предзагружены.
-                        accountDetailsProvider.setCurrentAccount(account);
-
-                        // 2. Переходим на экран
-                        final changed = await Navigator.of(
-                          context,
-                        ).pushNamed('/account-details');
-                        if (changed == true) {
-                          _triggerFullRefresh();
-                        }
-                      },
-                      child: ListTile(
-                        title: Text(account.nickname),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 4.0, bottom: 4.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('ID счета: ${account.apiAccountId}'),
-                              Text('ID клиента: ${account.bankClientId}'),
-                              if (account.ownerName != null &&
-                                  account.ownerName!.isNotEmpty)
-                                Text('Владелец: ${account.ownerName!}'),
-                              if (account.accountType != null &&
-                                  account.accountType!.isNotEmpty)
-                                Text('Тип: ${account.accountType!}'),
-                              if (account.status != null &&
-                                  account.status != 'Enabled')
-                                Text(
-                                  'Статус: ${account.status!}',
-                                  style: TextStyle(
-                                    color: Colors.orange.shade800,
-                                    fontWeight: FontWeight.bold,
+                            return InkWell(
+                              mouseCursor: SystemMouseCursors.click,
+                              onTap: () async {
+                                accountDetailsProvider.setCurrentAccount(
+                                  account,
+                                );
+                                final changed = await Navigator.of(
+                                  context,
+                                ).pushNamed('/account-details');
+                                if (changed == true) {
+                                  _triggerFullRefresh();
+                                }
+                              },
+                              child: ListTile(
+                                title: Text(account.nickname),
+                                subtitle: Padding(
+                                  padding: const EdgeInsets.only(
+                                    top: 4.0,
+                                    bottom: 4.0,
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text('ID счета: ${account.apiAccountId}'),
+                                      Text(
+                                        'ID клиента: ${account.bankClientId}',
+                                      ),
+                                      if (account.ownerName != null &&
+                                          account.ownerName!.isNotEmpty)
+                                        Text('Владелец: ${account.ownerName!}'),
+                                      if (account.accountType != null &&
+                                          account.accountType!.isNotEmpty)
+                                        Text('Тип: ${account.accountType!}'),
+                                      if (account.status != null &&
+                                          account.status != 'Enabled')
+                                        Text(
+                                          'Статус: ${account.status!}',
+                                          style: TextStyle(
+                                            color: Colors.orange.shade800,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                    ],
                                   ),
                                 ),
-                            ],
-                          ),
-                        ),
-                        trailing: balance != null
-                            ? Text(
-                                (num.tryParse(balance.amount) ?? 0.0)
-                                    .toFormattedCurrency(balance.currency),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              )
-                            : const Text('Нет данных'),
-                      ),
-                    );
-                  }).toList(),
+                                trailing: balance != null
+                                    ? Text(
+                                        (num.tryParse(balance.amount) ?? 0.0)
+                                            .toFormattedCurrency(
+                                              balance.currency,
+                                            ),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      )
+                                    : const Text('Нет данных'),
+                              ),
+                            );
+                          })
+                          .toList(),
                 ),
               );
             },
