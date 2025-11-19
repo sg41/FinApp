@@ -64,23 +64,17 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
       context,
       listen: false,
     );
-    // VVV ИЗМЕНЕНИЕ: ОБЪЕДИНЯЕМ СПИСКИ ПОПОЛНЕНИЙ И СПИСАНИЙ VVV
     final payments = scheduledProvider.getPaymentsForAccount(
       _currentAccount!.id,
     );
     final debits = scheduledProvider.getDebitsForAccount(_currentAccount!.id);
-    // Собираем все уникальные платежи, связанные с этим счетом
     final allRelatedPayments = {...payments, ...debits}.toList();
-    // ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
 
-    // VVV ИЗМЕНЕНИЕ: В ЦИКЛЕ НИЧЕГО НЕ МЕНЯЕТСЯ, НО ТЕПЕРЬ ОН РАБОТАЕТ И ДЛЯ СПИСАНИЙ VVV
     for (final payment in allRelatedPayments) {
-      // Расчет суммы всегда зависит от счета-получателя (creditor), поэтому
-      // нам нужно получить обороты именно по нему.
       final creditorAccount = scheduledProvider.allUserAccounts.firstWhere(
         (acc) => acc.id == payment.creditorAccountId,
         orElse: () => _currentAccount!,
-      ); // Фоллбэк на текущий, если не найден
+      );
 
       final needsFetching =
           payment.amountType != AmountType.fixed &&
@@ -100,7 +94,6 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
           end: payment.periodEndDate!,
         );
 
-        // Получаем обороты для счета-ПОЛУЧАТЕЛЯ
         final turnover = await scheduledProvider.fetchTurnoverForPeriod(
           accountId: creditorAccount.id,
           period: period,
@@ -157,14 +150,16 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
         }
 
         final account = detailsProvider.account!;
+
+        // VVV СОРТИРОВКА СПИСКОВ ПО ID (ПО ВОЗРАСТАНИЮ) VVV
         final paymentsForAccount = scheduledProvider.getPaymentsForAccount(
           account.id,
-        );
-        // VVV ПОЛУЧАЕМ СПИСОК СПИСАНИЙ VVV
+        )..sort((a, b) => a.id.compareTo(b.id));
+
         final debitsForAccount = scheduledProvider.getDebitsForAccount(
           account.id,
-        );
-        // ^^^ КОНЕЦ ^^^
+        )..sort((a, b) => a.id.compareTo(b.id));
+        // ^^^ КОНЕЦ СОРТИРОВКИ ^^^
 
         return PopScope(
           canPop: false,
@@ -222,7 +217,6 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
                       ),
                     ),
                   const SizedBox(height: 24),
-                  // --- БЛОК АВТОПОПОЛНЕНИЙ ---
                   Text(
                     'Настроенные автопополнения',
                     style: Theme.of(context).textTheme.titleLarge,
@@ -244,23 +238,21 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
                     )
                   else
                     ...paymentsForAccount.map((payment) {
-                      // Находим счет-отправитель для карточки
                       final debtorAccount = scheduledProvider.allUserAccounts
                           .firstWhere(
                             (acc) => acc.id == payment.debtorAccountId,
-                            orElse: () => account, // Фоллбэк
+                            orElse: () => account,
                           );
                       return ScheduledPaymentInfoCard(
                         payment: payment,
                         debtorAccount: debtorAccount,
-                        creditorAccount: account, // Текущий счет - получатель
+                        creditorAccount: account,
                         turnoverForPreview: _turnoverPreviews[payment.id],
                         isPreviewLoading:
                             _isLoadingPreviews[payment.id] ?? false,
                       );
                     }).toList(),
 
-                  // --- VVV НОВЫЙ БЛОК АВТОСПИСАНИЙ VVV ---
                   const SizedBox(height: 24),
                   Text(
                     'Автосписания с этого счета',
@@ -281,23 +273,21 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
                     )
                   else
                     ...debitsForAccount.map((payment) {
-                      // Находим счет-получатель для карточки
                       final creditorAccount = scheduledProvider.allUserAccounts
                           .firstWhere(
                             (acc) => acc.id == payment.creditorAccountId,
-                            orElse: () => account, // Фоллбэк
+                            orElse: () => account,
                           );
                       return ScheduledPaymentInfoCard(
                         payment: payment,
-                        debtorAccount: account, // Текущий счет - отправитель
+                        debtorAccount: account,
                         creditorAccount: creditorAccount,
-                        isDebitView: true, // <-- Указываем, что это списание
+                        isDebitView: true,
                         turnoverForPreview: _turnoverPreviews[payment.id],
                         isPreviewLoading:
                             _isLoadingPreviews[payment.id] ?? false,
                       );
                     }).toList(),
-                  // --- ^^^ КОНЕЦ НОВОГО БЛОКА ^^^ ---
                 ],
               ),
             ),
@@ -307,7 +297,6 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
     );
   }
 
-  // ... остальные методы (_buildInfoCard, _buildTurnoverCard и т.д.) остаются без изменений ...
   List<Widget> _buildBalanceRows(Account account) {
     final List<Widget> widgets = [];
     Balance? availableBalance;

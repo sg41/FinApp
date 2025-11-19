@@ -1,33 +1,31 @@
 // lib/widgets/scheduled_payment_info_card.dart
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/scheduled_payment.dart';
 import '../models/turnover_data.dart';
 import '../providers/scheduled_payment_provider.dart';
+// VVV ДОБАВЛЯЕМ ИМПОРТ ДЛЯ НАВИГАЦИИ VVV
+import '../providers/account_details_provider.dart';
+// ^^^ КОНЕЦ ИМПОРТА ^^^
 import '../models/account.dart';
 import '../utils/formatting.dart';
 
 class ScheduledPaymentInfoCard extends StatelessWidget {
   final ScheduledPayment payment;
-  // VVV ИЗМЕНЕНИЯ В КОНСТРУКТОРЕ VVV
   final Account debtorAccount;
   final Account creditorAccount;
-  final bool isDebitView; // <-- Новый флаг
-  // ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^
+  final bool isDebitView;
   final TurnoverData? turnoverForPreview;
   final bool isPreviewLoading;
 
   const ScheduledPaymentInfoCard({
     super.key,
     required this.payment,
-    // VVV ИЗМЕНЕНИЯ В КОНСТРУКТОРЕ VVV
     required this.debtorAccount,
     required this.creditorAccount,
-    this.isDebitView = false, // <-- Значение по умолчанию
-    // ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^
+    this.isDebitView = false,
     this.turnoverForPreview,
     this.isPreviewLoading = false,
   });
@@ -192,26 +190,30 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
     }
   }
 
+  // VVV НОВЫЙ МЕТОД ДЛЯ ПЕРЕХОДА К СЧЕТУ VVV
+  void _navigateToAccount(BuildContext context, Account account) {
+    // 1. Устанавливаем выбранный счет в провайдере деталей
+    Provider.of<AccountDetailsProvider>(
+      context,
+      listen: false,
+    ).setCurrentAccount(account);
+
+    // 2. Переходим на экран деталей
+    // Используем pushNamed, чтобы можно было вернуться назад кнопкой Back
+    Navigator.of(context).pushNamed('/account-details');
+  }
+  // ^^^ КОНЕЦ НОВОГО МЕТОДА ^^^
+
   @override
   Widget build(BuildContext context) {
-    // VVV УДАЛЯЕМ ЛОГИКУ ПОИСКА СЧЕТА, ТАК КАК ОН ТЕПЕРЬ ПЕРЕДАЕТСЯ НАПРЯМУЮ VVV
-    // final provider = Provider.of<ScheduledPaymentProvider>(
-    //   context,
-    //   listen: false,
-    // );
-    // final debtorAccount = provider.allUserAccounts.firstWhere( ... );
-    // ^^^ КОНЕЦ УДАЛЕНИЯ ^^^
-
-    // VVV НОВАЯ ЛОГИКА ДЛЯ ЗАГОЛОВКА И ЦВЕТА КАРТОЧКИ VVV
     final String titleText = isDebitView ? 'Автосписание' : 'Автопополнение';
     final Color cardColor = isDebitView
         ? Colors.red.shade50
         : Colors.amber.shade50;
-    // ^^^ КОНЕЦ НОВОЙ ЛОГИКИ ^^^
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12.0),
-      color: cardColor, // <-- Используем новый цвет
+      color: cardColor,
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -221,15 +223,13 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    '$titleText #${payment.id}', // <-- Используем новый заголовок
+                    '$titleText #${payment.id}',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.edit, color: Colors.black54),
                   onPressed: () {
-                    // Логика редактирования остается прежней: мы всегда редактируем
-                    // "пополнение", передавая счет-получатель.
                     Navigator.of(context).pushNamed(
                       '/scheduled-payment',
                       arguments: {
@@ -248,14 +248,15 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
               ],
             ),
             const Divider(),
-            // VVV НОВАЯ ЛОГИКА ОТОБРАЖЕНИЯ СЧЕТОВ VVV
+            // VVV ПЕРЕДАЕМ CONTEXT В МЕТОД VVV
             _buildInfoRowWithWidget(
               isDebitView ? 'На счет:' : 'Со счета:',
               _buildAccountDetails(
+                context,
                 isDebitView ? creditorAccount : debtorAccount,
               ),
             ),
-            // ^^^ КОНЕЦ НОВОЙ ЛОГИКИ ^^^
+            // ^^^ КОНЕЦ ИЗМЕНЕНИЯ ^^^
             _buildInfoRow('Сумма:', _getAmountText()),
             const SizedBox(height: 8),
             _buildInfoRow(
@@ -270,8 +271,8 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
   }
 
   /// Вспомогательный виджет для отображения полной информации о счете.
-  /// Теперь он универсален.
-  Widget _buildAccountDetails(Account account) {
+  // VVV ИЗМЕНЕННЫЙ МЕТОД: ДОБАВЛЕН INKWELL И CONTEXT VVV
+  Widget _buildAccountDetails(BuildContext context, Account account) {
     final balance = account.availableBalance;
     final balanceText = balance != null
         ? (num.tryParse(balance.amount) ?? 0.0).toFormattedCurrency(
@@ -279,23 +280,59 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
           )
         : 'Баланс н/д';
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Text(
-          account.nickname,
-          textAlign: TextAlign.end,
-          style: const TextStyle(fontWeight: FontWeight.bold),
+    // Оборачиваем в Material и InkWell для кликабельности
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(4),
+        onTap: () => _navigateToAccount(context, account),
+        child: Padding(
+          padding: const EdgeInsets.only(
+            left: 8.0,
+            top: 4.0,
+            bottom: 4.0,
+          ), // Добавили отступ для тапа
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    account.nickname,
+                    textAlign: TextAlign.end,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      decoration:
+                          TextDecoration.underline, // Подчеркнем, как ссылку
+                      decorationStyle: TextDecorationStyle.dotted, // Пунктиром
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 10,
+                    color: Colors.grey,
+                  ), // Маленькая стрелочка
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${account.bankName.toUpperCase()} | ${account.bankClientId}\n$balanceText',
+                textAlign: TextAlign.end,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[700],
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          '${account.bankName.toUpperCase()} | ${account.bankClientId}\n$balanceText',
-          textAlign: TextAlign.end,
-          style: TextStyle(fontSize: 12, color: Colors.grey[700], height: 1.4),
-        ),
-      ],
+      ),
     );
   }
+  // ^^^ КОНЕЦ ИЗМЕНЕНИЙ ^^^
 
   /// Вспомогательный виджет для простой строки "Метка: Значение".
   Widget _buildInfoRow(String label, String value) {
@@ -330,7 +367,7 @@ class ScheduledPaymentInfoCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(top: 2.0),
+            padding: const EdgeInsets.only(top: 8.0), // Чуть опустим метку
             child: Text(label, style: const TextStyle(color: Colors.grey)),
           ),
           const SizedBox(width: 16),
