@@ -7,93 +7,89 @@ import '../../utils/formatting.dart';
 class CreditorAccountCard extends StatelessWidget {
   final Account account;
 
-  const CreditorAccountCard({
-    super.key,
-    required this.account,
-  });
+  const CreditorAccountCard({super.key, required this.account});
 
   @override
   Widget build(BuildContext context) {
-    // Получаем баланс для отображения
     final balance = account.availableBalance;
     final balanceText = balance != null
-        ? (num.tryParse(balance.amount) ?? 0.0)
-            .toFormattedCurrency(balance.currency)
+        ? (num.tryParse(balance.amount) ?? 0.0).toFormattedCurrency(
+            balance.currency,
+          )
         : 'Баланс н/д';
 
     return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: Colors.grey.shade400),
+        borderRadius: BorderRadius.circular(4.0),
+      ),
+      color: Colors.grey.shade100,
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 12.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Заголовок поля, имитирующий Label текстового поля
             Text(
               'Переводить на счет',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade700,
-              ),
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
             ),
-            const SizedBox(height: 8),
-            // Основное название счета
-            Text(
-              account.nickname,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w500, // Чуть жирнее
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Divider(),
-            const SizedBox(height: 8),
-            // Детальная информация
-            _buildDetailRow('Банк', account.bankName.toUpperCase()),
-            _buildDetailRow('ID клиента', account.bankClientId),
-            _buildDetailRow('ID счета', account.apiAccountId),
             const SizedBox(height: 4),
-            // Баланс выделяем
+
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Text(
-                  'Текущий баланс',
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                Expanded(
+                  child: RichText(
+                    overflow: TextOverflow.ellipsis,
+                    text: TextSpan(
+                      style: DefaultTextStyle.of(context).style,
+                      children: [
+                        TextSpan(
+                          text: account.nickname,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        TextSpan(
+                          text:
+                              '  •  ${account.bankName.toUpperCase()} ${account.bankClientId} ${account.apiAccountId}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
+
+                const SizedBox(width: 8),
+
                 Text(
                   balanceText,
-                  style: const TextStyle(
+                  style: TextStyle(
+                    fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: Colors.green, // Можно использовать зеленый для акцента
+                    color: Colors.green.shade700,
                   ),
+                ),
+
+                // 3. ДОБАВЛЯЕМ НЕВИДИМУЮ СТРЕЛКУ ДЛЯ ИДЕАЛЬНОГО ВЫРАВНИВАНИЯ
+                const SizedBox(width: 8),
+                const Opacity(
+                  opacity: 0.0, // Делаем невидимой
+                  child: Icon(
+                    Icons.arrow_drop_down,
+                  ), // Тот же размер, что и в селекторе
                 ),
               ],
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.end,
-              style: const TextStyle(fontSize: 13),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
       ),
     );
   }
