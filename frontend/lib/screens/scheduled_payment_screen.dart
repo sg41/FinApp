@@ -12,8 +12,9 @@ import '../providers/accounts_provider.dart';
 import '../providers/scheduled_payment_provider.dart';
 import '../utils/formatting.dart';
 
-// Импорт новых виджетов
+// Импорт виджетов формы
 import '../widgets/scheduled_payment_form/_debtor_account_selector_card.dart';
+import '../widgets/scheduled_payment_form/_creditor_account_card.dart'; // <-- Новый импорт
 import '../widgets/scheduled_payment_form/_date_and_recurrence_card.dart';
 import '../widgets/scheduled_payment_form/_payment_amount_card.dart';
 
@@ -54,7 +55,6 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
   @override
   void initState() {
     super.initState();
-    // Listener больше не нужен здесь, так как мы используем onChanged в дочернем виджете
   }
 
   @override
@@ -165,7 +165,7 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
   }
 
   void _recalculatePreviewText() {
-    if (!mounted) return; // Добавим проверку на случай асинхронных вызовов
+    if (!mounted) return;
 
     if (_turnoverDataForPreview == null) {
       setState(() => _previewAmountText = null);
@@ -299,6 +299,7 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // --- КАРТОЧКА "ОТКУДА" (Debtor) ---
                     Consumer<ScheduledPaymentProvider>(
                       builder: (context, provider, child) {
                         return DebtorAccountSelectorCard(
@@ -316,6 +317,12 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                     ),
                     const SizedBox(height: 16),
 
+                    // --- КАРТОЧКА "КУДА" (Creditor) ---
+                    if (_creditorAccount != null)
+                      CreditorAccountCard(account: _creditorAccount!),
+                    if (_creditorAccount != null) const SizedBox(height: 16),
+
+                    // --- КАРТОЧКА "КОГДА" (Date) ---
                     DateAndRecurrenceCard(
                       nextPaymentDate: _nextPaymentDate,
                       onDateChanged: (date) =>
@@ -331,6 +338,7 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                     ),
                     const SizedBox(height: 16),
 
+                    // --- КАРТОЧКА "СКОЛЬКО" (Amount) ---
                     PaymentAmountCard(
                       selectedAmountType: _selectedAmountType,
                       onAmountTypeChanged: (value) {
@@ -355,6 +363,8 @@ class _ScheduledPaymentScreenState extends State<ScheduledPaymentScreen> {
                       onRecalculatePreview: _recalculatePreviewText,
                     ),
                     const SizedBox(height: 24),
+
+                    // --- КНОПКА СОХРАНИТЬ ---
                     ElevatedButton(
                       onPressed: _submitForm,
                       style: ElevatedButton.styleFrom(
