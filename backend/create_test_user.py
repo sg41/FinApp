@@ -37,13 +37,13 @@ def reset_database():
         sys.exit()
 
     try:
-        print("-> Удаляю старые таблицы...")
-        models.Base.metadata.drop_all(bind=engine)
-        print("   ...старые таблицы успешно удалены.")
+        # print("-> Удаляю старые таблицы...")
+        # models.Base.metadata.drop_all(bind=engine)
+        # print("   ...старые таблицы успешно удалены.")
 
-        print("-> Создаю новые таблицы...")
-        models.Base.metadata.create_all(bind=engine)
-        print("   ...новые таблицы успешно созданы.")
+        # print("-> Создаю новые таблицы...")
+        # models.Base.metadata.create_all(bind=engine)
+        # print("   ...новые таблицы успешно созданы.")
 
         print("-> Добавляю информацию о банках...")
         banks_to_add = [
