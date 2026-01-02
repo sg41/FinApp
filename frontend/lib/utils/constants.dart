@@ -12,10 +12,10 @@ const String _yourComputerIP = "127.0.0.1"; // <-- ЗАМЕНИТЕ ЭТОТ IP!
 // 3. Выберите правильную константу ниже в зависимости от платформы.
 
 // Для Android Эмулятора используйте этот специальный адрес.
-const String API_BASE_URL_ANDROID_EMULATOR = "http://10.0.2.2:8001";
+const String API_BASE_URL_ANDROID_EMULATOR = "http://10.0.2.2:8011";
 
 // Для iOS Симулятора, Web, Desktop и РЕАЛЬНЫХ устройств в вашей Wi-Fi сети.
-const String API_BASE_URL_NETWORK = "http://$_yourComputerIP:8001";
+const String API_BASE_URL_NETWORK = "http://$_yourComputerIP:8011";
 
 // Финальная константа, которая будет использоваться в приложении.
 // Перед сборкой для нужной платформы, выберите правильный адрес.

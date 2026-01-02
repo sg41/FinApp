@@ -280,7 +280,7 @@
 	"variable": [
 		{
 			"key": "baseUrl",
-			"value": "http://localhost:8001",
+			"value": "http://localhost:8011",
 			"type": "string",
 			"description": "Базовый URL вашего API"
 		},

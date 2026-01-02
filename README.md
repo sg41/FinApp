@@ -111,9 +111,9 @@
     ```bash
     make run
     # или напрямую:
-    # cd backend && uvicorn main:app --reload --host 0.0.0.0 --port 8001
+    # cd backend && uvicorn main:app --reload --host 0.0.0.0 --port 8011
     ```
-    Сервер будет доступен по адресу `http://localhost:8001`. Документация API (Swagger UI) будет доступна по `http://localhost:8001/docs`.
+    Сервер будет доступен по адресу `http://localhost:8011`. Документация API (Swagger UI) будет доступна по `http://localhost:8011/docs`.
 
 ### Запуск фронтенда
 
