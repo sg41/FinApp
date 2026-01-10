@@ -268,7 +268,10 @@ class _AccountsScreenState extends State<AccountsScreen> {
               ),
             ],
           ),
-          body: body,
+          body: RefreshIndicator(
+            onRefresh: _triggerFullRefresh,
+            child: body,
+          ),
         );
       },
     );
