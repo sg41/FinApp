@@ -33,6 +33,8 @@ Thumbs.db
 
 # Logs
 *.log
+backend.txt
+frontend.txt
 
 # Coverage
 coverage/
